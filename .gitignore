@@ -15,5 +15,6 @@ env/
 .claude/
 
 *.log
+*.spec
 .DS_Store
 Thumbs.db

@@ -271,10 +271,15 @@ def create_ai_engine(
 
 def load_skills(raw_config: dict) -> list[dict]:
     """加载技能文件"""
+    import sys
     candidates = [
         Path(__file__).parent.parent.parent / "skills",
         Path(__file__).parent / "skills",
     ]
+    # PyInstaller 打包后
+    if getattr(sys, 'frozen', False):
+        candidates.insert(0, Path(sys._MEIPASS) / "skills")
+        candidates.insert(1, Path(sys.executable).parent / "skills")
     skills_dir = None
     for p in candidates:
         if p.is_dir():
