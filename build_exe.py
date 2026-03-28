@@ -8,12 +8,10 @@ ROOT = Path(__file__).parent
 SRC = ROOT / "src" / "gai_play"
 SKILLS = ROOT / "skills"
 STATIC = SRC / "web" / "static"
-CONFIG = ROOT / "config.yaml"
 
 COMMON_ARGS = [
     f"--paths={ROOT / 'src'}",
     f"--add-data={SKILLS};skills",
-    f"--add-data={CONFIG};.",
     "--hidden-import=win32gui",
     "--hidden-import=win32ui",
     "--hidden-import=win32con",
