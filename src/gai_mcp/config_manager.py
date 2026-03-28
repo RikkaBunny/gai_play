@@ -25,10 +25,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "local_base_url": "http://localhost:11434",
     },
     "ai": {
-        "provider": "openai",
-        "claude_model": "fredrezones55/qwen3.5-opus:9b",
-        "openai_model": "fredrezones55/qwen3.5-opus:9b",
-        "local_model": "llava",
+        "provider": "local",
+        "claude_model": "claude-sonnet-4-20250514",
+        "openai_model": "gpt-4o",
+        "local_model": "fredrezones55/qwen3.5-opus:9b",
     },
     "game_loop": {
         "capture_interval": 2.0,
@@ -47,7 +47,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "window_title": "Tricolour Lovestory",
             "strategy": "你正在玩一款中文视觉小说《三色绘恋》。你的目标是推进剧情、体验故事、在选项中做出有趣的选择。",
             "skills": ["galgame.md", "tricolour_lovestory.md"],
-            "ai_provider": "openai",
+            "ai_provider": "local",
             "capture_interval": 3.0,
         },
     },
