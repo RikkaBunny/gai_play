@@ -1,0 +1,41 @@
+# GAI MCP 默认配置
+
+# AI 模型配置
+ai:
+  # 可选: claude, openai, local
+  provider: claude
+  # Claude 配置
+  claude:
+    model: claude-sonnet-4-20250514
+    max_tokens: 1024
+    # 自定义 API 地址 (留空使用官方地址)
+    # base_url: https://api.anthropic.com
+  # OpenAI 配置
+  openai:
+    model: gpt-4o
+    max_tokens: 1024
+    # 自定义 API 地址 (留空使用官方地址，可填第三方中转地址)
+    # base_url: https://api.openai.com/v1
+  # 本地模型配置 (Ollama)
+  local:
+    base_url: http://localhost:11434
+    model: llava
+
+# 游戏循环配置
+game_loop:
+  # 截图间隔 (秒)
+  capture_interval: 2.0
+  # 操作间延迟 (秒)
+  action_delay: 0.5
+  # 画面变化阈值 (0-1, 越小越敏感)
+  change_threshold: 0.02
+  # 截图质量 (JPEG 1-100)
+  screenshot_quality: 75
+  # 截图最大宽度 (像素, 用于压缩)
+  screenshot_max_width: 1280
+
+# 虚拟桌面
+virtual_desktop:
+  enabled: true
+  # 是否在会话结束后自动清理虚拟桌面
+  auto_cleanup: true

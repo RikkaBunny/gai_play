@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAI MCP</title>
+    <style>
+        :root {
+            --bg: #e8e0e0;
+            --bg-primary: rgba(255,255,255,0.55);
+            --bg-secondary: rgba(255,255,255,0.35);
+            --bg-tertiary: rgba(255,255,255,0.25);
+            --bg-elevated: rgba(255,255,255,0.65);
+            --border: rgba(180,170,175,0.3);
+            --border-focus: rgba(160,145,155,0.45);
+            --text-primary: #4a4045;
+            --text-secondary: #8a7e83;
+            --text-tertiary: #b0a5a8;
+            --accent: #9b8aa0;
+            --accent-hover: #8a7790;
+            --green: #8faa8c;
+            --orange: #c9a96e;
+            --red: #c48a8a;
+            --pink: #d4a0a7;
+            --purple: #a08db8;
+            --teal: #89a7b5;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 20px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { font-size: 16px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -30%; left: -20%; width: 80%; height: 80%;
+            background: radial-gradient(ellipse, rgba(176,190,210,0.4) 0%, transparent 65%);
+            pointer-events: none; z-index: 0;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -25%; right: -15%; width: 75%; height: 75%;
+            background: radial-gradient(ellipse, rgba(212,160,167,0.3) 0%, transparent 65%);
+            pointer-events: none; z-index: 0;
+        }
+
+        /* ── Nav Bar ── */
+        .navbar {
+            position: sticky; top: 0; z-index: 100;
+            display: flex; align-items: center;
+            padding: 0 32px; height: 52px;
+            background: rgba(235,228,228,0.75);
+            backdrop-filter: saturate(120%) blur(20px);
+            -webkit-backdrop-filter: saturate(120%) blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+        .navbar-brand {
+            font-size: 17px; font-weight: 600; letter-spacing: -0.3px;
+            color: var(--text-primary);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .navbar-brand .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--text-tertiary); transition: background 0.6s;
+        }
+        .dot.running { background: var(--green); box-shadow: 0 0 8px rgba(143,170,140,0.6); }
+        .dot.paused { background: var(--orange); box-shadow: 0 0 8px rgba(201,169,110,0.5); }
+        .dot.error { background: var(--red); box-shadow: 0 0 8px rgba(196,138,138,0.5); }
+        .navbar-tabs { display: flex; margin-left: 40px; gap: 2px; height: 100%; }
+        .navbar-tab {
+            display: flex; align-items: center; padding: 0 16px;
+            font-size: 13px; font-weight: 400; color: var(--text-secondary);
+            background: none; border: none; cursor: pointer;
+            position: relative; transition: color 0.2s;
+        }
+        .navbar-tab:hover { color: var(--text-primary); background: rgba(155,138,160,0.1); border-radius: 6px; }
+        .navbar-tab.active { color: var(--text-primary); }
+        .navbar-tab.active::after {
+            content: ''; position: absolute; bottom: 0; left: 16px; right: 16px;
+            height: 1.5px; background: var(--accent); border-radius: 1px;
+        }
+        .navbar-status {
+            margin-left: auto; font-size: 12px; color: var(--text-tertiary);
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        /* ── Layout ── */
+        .container {
+            position: relative; z-index: 1;
+            max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px;
+        }
+        .panel { display: none; animation: fadeIn 0.3s ease; }
+        .panel.active { display: block; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-title { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 24px; }
+        .section-subtitle { font-size: 13px; color: var(--text-secondary); margin-top: -16px; margin-bottom: 28px; }
+
+        /* ── Glass Card ── */
+        .card {
+            background: var(--bg-primary);
+            backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+            border: 1px solid var(--border); border-radius: var(--radius-xl);
+            padding: 24px; margin-bottom: 20px; transition: border-color 0.3s, transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover { border-color: var(--border-focus); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(120,100,110,0.12); }
+        .card-title {
+            font-size: 13px; font-weight: 600; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 20px;
+        }
+        .card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 640px) { .card-row { grid-template-columns: 1fr; } }
+
+        /* ── Form ── */
+        .field { margin-bottom: 18px; }
+        .field:last-child { margin-bottom: 0; }
+        .field-label { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 7px; }
+        .field-input {
+            width: 100%; padding: 10px 14px;
+            background: rgba(255,255,255,0.4); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); color: var(--text-primary);
+            font-size: 14px; font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s; outline: none;
+        }
+        .field-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(155,138,160,0.2); }
+        .field-input::placeholder { color: var(--text-tertiary); }
+        textarea.field-input { min-height: 80px; resize: vertical; line-height: 1.5; }
+        select.field-input {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%23a09598'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            padding: 8px 18px; border: none; border-radius: 980px;
+            font-size: 14px; font-weight: 500; font-family: inherit;
+            cursor: pointer; transition: all 0.2s ease; white-space: nowrap;
+        }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(120,100,110,0.2); }
+        .btn:active:not(:disabled) { transform: scale(0.96) translateY(0); box-shadow: none; }
+        .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+        .btn-green { background: var(--green); color: #fff; }
+        .btn-green:hover:not(:disabled) { background: #7f9d7c; }
+        .btn-orange { background: var(--orange); color: #fff; }
+        .btn-orange:hover:not(:disabled) { background: #b89860; }
+        .btn-red { background: var(--red); color: #fff; }
+        .btn-red:hover:not(:disabled) { background: #b57a7a; }
+        .btn-ghost { background: var(--bg-secondary); color: var(--text-primary); }
+        .btn-ghost:hover:not(:disabled) { background: var(--bg-tertiary); }
+        .btn-sm { padding: 5px 12px; font-size: 12px; }
+        .btn-lg { padding: 11px 28px; font-size: 16px; font-weight: 600; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* ── Stats Grid ── */
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+        @media (max-width: 640px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+        .stat-item {
+            background: var(--bg-primary); backdrop-filter: blur(40px);
+            border: 1px solid var(--border); border-radius: var(--radius-lg);
+            padding: 20px; text-align: center; transition: border-color 0.3s, transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .stat-item:hover { border-color: var(--border-focus); transform: translateY(-3px); box-shadow: 0 8px 24px rgba(120,100,110,0.15); }
+        .stat-value { font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+        .stat-value.accent { color: var(--accent); }
+        .stat-value.green { color: var(--green); }
+        .stat-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px; }
+
+        /* ── Play Controls ── */
+        .play-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; flex-wrap: wrap; }
+        .play-bar select {
+            padding: 10px 36px 10px 16px;
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: 980px; color: var(--text-primary);
+            font-size: 14px; font-family: inherit; outline: none; appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%23a09598'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 14px center;
+            min-width: 200px; transition: border-color 0.2s;
+        }
+        .play-bar select:focus { border-color: var(--accent); }
+
+        /* ── Decision Feed ── */
+        .feed { display: flex; flex-direction: column; gap: 12px; }
+        .feed-empty { text-align: center; padding: 60px 20px; color: var(--text-tertiary); font-size: 14px; }
+        .feed-item {
+            background: var(--bg-primary); backdrop-filter: blur(40px);
+            border: 1px solid var(--border); border-radius: var(--radius-lg);
+            padding: 20px; transition: all 0.3s ease;
+        }
+        .feed-item:first-child { border-color: rgba(155,138,160,0.4); box-shadow: 0 0 20px rgba(155,138,160,0.1); }
+        .feed-item.error { border-color: rgba(196,138,138,0.4); }
+        .feed-item:hover { border-color: var(--border-focus); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(120,100,110,0.12); }
+        .feed-item.skipped { opacity: 0.5; }
+        .feed-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: 12px; }
+        .feed-badge { padding: 3px 10px; border-radius: 980px; font-weight: 600; font-size: 11px; letter-spacing: 0.3px; }
+        .feed-badge.latest { background: var(--accent); color: #fff; }
+        .feed-badge.round { background: rgba(180,170,175,0.3); color: var(--text-secondary); }
+        .feed-time { color: var(--text-tertiary); }
+        .feed-elapsed { color: var(--teal); margin-left: auto; font-variant-numeric: tabular-nums; }
+        .feed-conf { padding: 2px 8px; border-radius: 980px; font-size: 11px; font-weight: 600; }
+        .conf-high { background: rgba(143,170,140,0.2); color: #6a8a67; }
+        .conf-mid { background: rgba(201,169,110,0.2); color: #a08850; }
+        .conf-low { background: rgba(196,138,138,0.2); color: #a06a6a; }
+        .feed-ops { font-size: 11px; color: var(--green); font-weight: 500; }
+        .feed-body { display: grid; grid-template-columns: 200px 1fr; gap: 16px; }
+        @media (max-width: 640px) { .feed-body { grid-template-columns: 1fr; } }
+        .feed-thumb { border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); aspect-ratio: 16/9; background: #d5cece; }
+        .feed-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .feed-analysis {
+            font-size: 13px; line-height: 1.65; color: var(--text-secondary);
+            padding: 12px 14px; background: rgba(255,255,255,0.3);
+            border-radius: var(--radius-sm); border-left: 2px solid var(--accent); margin-bottom: 12px;
+        }
+        .feed-actions { display: flex; flex-direction: column; gap: 4px; }
+        .feed-action { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 10px; background: rgba(255,255,255,0.25); border-radius: var(--radius-sm); }
+        .feed-action-type { padding: 1px 8px; border-radius: 4px; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(137,167,181,0.2); color: #6a8a9a; }
+        .feed-action-coords { color: var(--text-tertiary); font-family: "SF Mono", "Fira Code", monospace; font-size: 11px; }
+        .feed-action-reason { color: var(--text-secondary); flex: 1; }
+        .feed-skip { color: var(--text-tertiary); font-size: 13px; font-style: italic; }
+        .feed-error { color: var(--red); font-size: 13px; }
+
+        /* ── Game List ── */
+        .game-item {
+            display: flex; align-items: center;
+            padding: 14px 18px; background: rgba(255,255,255,0.3);
+            border: 1px solid var(--border); border-radius: var(--radius-md);
+            margin-bottom: 8px; transition: all 0.3s ease; cursor: pointer;
+        }
+        .game-item:hover { border-color: var(--accent); background: rgba(155,138,160,0.1); transform: translateX(4px); }
+        .game-item.editing { border-color: var(--accent); background: rgba(155,138,160,0.12); box-shadow: 0 0 12px rgba(155,138,160,0.15); }
+        .game-info { flex: 1; }
+        .game-name { font-weight: 600; font-size: 14px; }
+        .game-meta { font-size: 12px; color: var(--text-tertiary); margin-top: 3px; }
+        .game-actions { display: flex; gap: 6px; }
+        .game-edit-hint { font-size: 11px; color: var(--text-tertiary); margin-left: 8px; }
+
+        /* ── Log Viewer ── */
+        .log-box {
+            background: rgba(255,255,255,0.35); border: 1px solid var(--border);
+            border-radius: var(--radius-md); padding: 16px 18px;
+            font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+            font-size: 11.5px; line-height: 1.7; max-height: 520px;
+            overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+            color: var(--text-secondary);
+        }
+        .log-box::-webkit-scrollbar { width: 6px; }
+        .log-box::-webkit-scrollbar-track { background: transparent; }
+        .log-box::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 3px; }
+
+        /* ── Toggle ── */
+        .toggle-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-left: auto; }
+        .toggle-row input[type="checkbox"] {
+            appearance: none; width: 34px; height: 20px; border-radius: 10px;
+            background: var(--bg-tertiary); position: relative; cursor: pointer; transition: background 0.2s;
+        }
+        .toggle-row input[type="checkbox"]::after {
+            content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+            border-radius: 50%; background: #fff; transition: transform 0.2s;
+        }
+        .toggle-row input[type="checkbox"]:checked { background: var(--accent); }
+        .toggle-row input[type="checkbox"]:checked::after { transform: translateX(14px); }
+
+        /* ── Toast ── */
+        .toast {
+            position: fixed; bottom: 28px; left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            padding: 12px 24px; border-radius: 980px; font-size: 14px; font-weight: 500;
+            z-index: 1000; opacity: 0; pointer-events: none;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); backdrop-filter: blur(20px);
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.success { background: rgba(143,170,140,0.85); color: #fff; border: 1px solid rgba(143,170,140,0.5); }
+        .toast.error { background: rgba(196,138,138,0.85); color: #fff; border: 1px solid rgba(196,138,138,0.5); }
+
+        /* ── Edit mode indicator ── */
+        .edit-banner {
+            display: none; align-items: center; gap: 10px;
+            padding: 10px 16px; margin-bottom: 16px;
+            background: rgba(155,138,160,0.12); border: 1px solid rgba(155,138,160,0.25);
+            border-radius: var(--radius-md); font-size: 13px; color: #7a6a80;
+        }
+        .edit-banner.show { display: flex; }
+        .edit-banner .edit-name { font-weight: 600; }
+
+        .mt-16 { margin-top: 16px; }
+        .mb-16 { margin-bottom: 16px; }
+        .flex-between { display: flex; align-items: center; justify-content: space-between; }
+        .muted { color: var(--text-tertiary); font-size: 13px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <span class="dot" id="statusDot"></span>
+            GAI MCP
+        </div>
+        <div class="navbar-tabs">
+            <button class="navbar-tab active" data-tab="play">AI 游玩</button>
+            <button class="navbar-tab" data-tab="keys">API 密钥</button>
+            <button class="navbar-tab" data-tab="games">游戏管理</button>
+            <button class="navbar-tab" data-tab="settings">高级设置</button>
+            <button class="navbar-tab" data-tab="logs">运行日志</button>
+        </div>
+        <div class="navbar-status" id="navStatus"></div>
+    </nav>
+
+    <div class="container">
+
+        <!-- ════════════ AI 游玩 ════════════ -->
+        <div class="panel active" id="panel-play">
+            <h1 class="section-title">AI 游玩</h1>
+
+            <div class="play-bar">
+                <select id="play-game-select">
+                    <option value="">-- 选择游戏 --</option>
+                </select>
+                <button class="btn btn-green btn-lg" id="btn-start" onclick="startPlay()">开始游玩</button>
+                <button class="btn btn-orange" id="btn-pause" onclick="pausePlay()" disabled>暂停</button>
+                <button class="btn btn-red" id="btn-stop" onclick="stopPlay()" disabled>停止</button>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-value green" id="stat-status">IDLE</div>
+                    <div class="stat-label">状态</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="stat-rounds">0</div>
+                    <div class="stat-label">决策轮数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value accent" id="stat-actions">0</div>
+                    <div class="stat-label">执行操作</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="stat-game" style="font-size:16px;margin-top:6px">-</div>
+                    <div class="stat-label">当前游戏</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="flex-between mb-16">
+                    <div class="card-title" style="margin-bottom:0">AI 决策链</div>
+                    <div style="display:flex;align-items:center;gap:12px">
+                        <button class="btn btn-ghost btn-sm" onclick="refreshDecisions()">刷新</button>
+                        <label class="toggle-row">
+                            自动
+                            <input type="checkbox" id="decision-auto-refresh" checked>
+                        </label>
+                    </div>
+                </div>
+                <div id="decision-chain" class="feed">
+                    <div class="feed-empty">选择游戏并点击「开始游玩」，AI 决策将在此实时展示</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════════════ API 密钥 ════════════ -->
+        <div class="panel" id="panel-keys">
+            <h1 class="section-title">API 密钥</h1>
+            <p class="section-subtitle">配置 AI 服务商的密钥和接口地址。</p>
+
+            <div class="card">
+                <div class="card-title">Anthropic</div>
+                <div class="field">
+                    <label class="field-label">API Key</label>
+                    <input class="field-input" type="password" id="key-anthropic" placeholder="sk-ant-api03-...">
+                </div>
+                <div class="field">
+                    <label class="field-label">API 地址 (留空使用官方地址)</label>
+                    <input class="field-input" type="text" id="key-claude-url" placeholder="https://api.anthropic.com">
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">OpenAI</div>
+                <div class="field">
+                    <label class="field-label">API Key</label>
+                    <input class="field-input" type="password" id="key-openai" placeholder="sk-proj-...">
+                </div>
+                <div class="field">
+                    <label class="field-label">API 地址 (留空使用官方地址，可填第三方中转地址)</label>
+                    <input class="field-input" type="text" id="key-openai-url" placeholder="https://api.openai.com/v1">
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">本地模型</div>
+                <div class="field">
+                    <label class="field-label">模型地址</label>
+                    <input class="field-input" type="text" id="key-local-url" placeholder="http://localhost:11434">
+                </div>
+            </div>
+
+            <div class="btn-group mt-16">
+                <button class="btn btn-primary" onclick="saveKeys()">保存密钥</button>
+                <button class="btn btn-ghost" onclick="toggleKeyVisibility()">显示 / 隐藏</button>
+            </div>
+
+            <div class="card" style="margin-top:20px">
+                <div class="card-title">默认 AI 模型</div>
+                <div class="card-row">
+                    <div class="field">
+                        <label class="field-label">默认提供者</label>
+                        <select class="field-input" id="ai-provider">
+                            <option value="claude">Claude</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="local">本地模型</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">Claude 模型</label>
+                        <input class="field-input" type="text" id="ai-claude-model" placeholder="claude-sonnet-4-20250514">
+                    </div>
+                </div>
+                <div class="card-row">
+                    <div class="field">
+                        <label class="field-label">OpenAI 模型</label>
+                        <input class="field-input" type="text" id="ai-openai-model" placeholder="gpt-4o">
+                    </div>
+                    <div class="field">
+                        <label class="field-label">本地模型</label>
+                        <input class="field-input" type="text" id="ai-local-model" placeholder="llava">
+                    </div>
+                </div>
+                <div class="btn-group mt-16">
+                    <button class="btn btn-primary" onclick="saveAIConfig()">保存模型设置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════════════ 游戏管理 ════════════ -->
+        <div class="panel" id="panel-games">
+            <h1 class="section-title">游戏管理</h1>
+            <p class="section-subtitle">添加、编辑和管理游戏配置。点击已有游戏可修改其配置。</p>
+
+            <div class="card" id="game-form-card">
+                <div class="edit-banner" id="edit-banner">
+                    正在编辑：<span class="edit-name" id="edit-game-name"></span>
+                    <button class="btn btn-ghost btn-sm" onclick="cancelEdit()" style="margin-left:auto">取消编辑</button>
+                </div>
+                <div class="card-title" id="game-form-title">添加游戏</div>
+                <div class="card-row">
+                    <div class="field">
+                        <label class="field-label">游戏名称</label>
+                        <input class="field-input" type="text" id="game-name" placeholder="如：三色绘恋">
+                    </div>
+                    <div class="field">
+                        <label class="field-label">窗口标题 (模糊匹配)</label>
+                        <input class="field-input" type="text" id="game-window" placeholder="如：Tricolour Lovestory">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="field-label">游戏路径 (可选，用于自动启动游戏)</label>
+                    <input class="field-input" type="text" id="game-path" placeholder="C:\Games\game.exe">
+                </div>
+                <div class="card-row">
+                    <div class="field">
+                        <label class="field-label">AI 提供者</label>
+                        <select class="field-input" id="game-ai">
+                            <option value="claude">Claude</option>
+                            <option value="openai">GPT-4o</option>
+                            <option value="local">本地模型</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">截图间隔 (秒)</label>
+                        <input class="field-input" type="number" id="game-interval" value="2.0" step="0.5" min="0.5">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="field-label">游戏策略提示词 (告诉 AI 这是什么游戏、目标是什么)</label>
+                    <textarea class="field-input" id="game-strategy" placeholder="例如：你正在玩一款视觉小说《三色绘恋》，目标是推进剧情、在选项中做出有趣的选择。"></textarea>
+                </div>
+                <div class="field">
+                    <label class="field-label">技能文件 (skills/ 目录下的 .md 文件名，逗号分隔)</label>
+                    <input class="field-input" type="text" id="game-skills" placeholder="例如：galgame.md, tricolour_lovestory.md">
+                </div>
+                <div class="btn-group mt-16">
+                    <button class="btn btn-primary" id="game-save-btn" onclick="saveGame()">添加游戏</button>
+                    <button class="btn btn-ghost" id="game-cancel-btn" onclick="cancelEdit()" style="display:none">取消</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">已配置的游戏</div>
+                <div id="game-list">
+                    <p class="muted">暂无配置的游戏</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════════════ 高级设置 ════════════ -->
+        <div class="panel" id="panel-settings">
+            <h1 class="section-title">高级设置</h1>
+            <p class="section-subtitle">调整游戏循环和截图参数。</p>
+
+            <div class="card">
+                <div class="card-title">游戏循环</div>
+                <div class="card-row">
+                    <div class="field">
+                        <label class="field-label">默认截图间隔 (秒)</label>
+                        <input class="field-input" type="number" id="set-interval" step="0.5" min="0.5">
+                    </div>
+                    <div class="field">
+                        <label class="field-label">操作间延迟 (秒)</label>
+                        <input class="field-input" type="number" id="set-delay" step="0.1" min="0.1">
+                    </div>
+                </div>
+                <div class="card-row">
+                    <div class="field">
+                        <label class="field-label">画面变化阈值 (0-1，越小越敏感)</label>
+                        <input class="field-input" type="number" id="set-threshold" step="0.01" min="0" max="1">
+                    </div>
+                    <div class="field">
+                        <label class="field-label">截图质量 (1-100)</label>
+                        <input class="field-input" type="number" id="set-quality" min="1" max="100">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="field-label">截图最大宽度 (像素)</label>
+                    <input class="field-input" type="number" id="set-maxwidth" min="320" max="3840">
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">虚拟桌面</div>
+                <div class="card-row">
+                    <div class="field">
+                        <label class="field-label">启用虚拟桌面隔离</label>
+                        <select class="field-input" id="set-vd-enabled">
+                            <option value="true">启用</option>
+                            <option value="false">禁用</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="field-label">自动清理虚拟桌面</label>
+                        <select class="field-input" id="set-vd-cleanup">
+                            <option value="true">启用</option>
+                            <option value="false">禁用</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="btn-group mt-16">
+                <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
+                <button class="btn btn-ghost" onclick="loadConfig()">重置</button>
+            </div>
+        </div>
+
+        <!-- ════════════ 运行日志 ════════════ -->
+        <div class="panel" id="panel-logs">
+            <h1 class="section-title">运行日志</h1>
+
+            <div class="card">
+                <div class="flex-between mb-16">
+                    <div class="btn-group">
+                        <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">刷新</button>
+                        <button class="btn btn-red btn-sm" onclick="clearLogs()">清空</button>
+                    </div>
+                    <label class="toggle-row">
+                        自动刷新
+                        <input type="checkbox" id="log-auto-refresh">
+                    </label>
+                </div>
+                <div class="log-box" id="log-content">暂无日志</div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ── Tab 切换 ──
+        document.querySelectorAll('.navbar-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.navbar-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'logs') refreshLogs();
+                if (tab.dataset.tab === 'games') loadGames();
+                if (tab.dataset.tab === 'play') { loadPlayGames(); refreshDecisions(); }
+            });
+        });
+
+        // ── Toast ──
+        function showToast(msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.className = 'toast ' + type + ' show';
+            setTimeout(() => toast.classList.remove('show'), 2500);
+        }
+
+        // ══════════════════════════════
+        // ── AI 游玩 ──
+        // ══════════════════════════════
+
+        async function loadPlayGames() {
+            try {
+                const res = await fetch('/api/games');
+                const games = await res.json();
+                const sel = document.getElementById('play-game-select');
+                const current = sel.value;
+                sel.innerHTML = '<option value="">-- 选择游戏 --</option>';
+                for (const name of Object.keys(games)) {
+                    sel.innerHTML += `<option value="${name}">${name}</option>`;
+                }
+                if (current) sel.value = current;
+            } catch (e) {}
+        }
+
+        async function startPlay() {
+            const gameName = document.getElementById('play-game-select').value;
+            if (!gameName) { showToast('请先选择游戏', 'error'); return; }
+            document.getElementById('btn-start').disabled = true;
+            try {
+                const res = await fetch('/api/play/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ game_name: gameName }),
+                });
+                const result = await res.json();
+                if (result.error) {
+                    showToast(result.error, 'error');
+                    document.getElementById('btn-start').disabled = false;
+                } else {
+                    showToast('游戏已启动');
+                    updatePlayButtons('running');
+                }
+            } catch (e) {
+                showToast('启动失败：' + e.message, 'error');
+                document.getElementById('btn-start').disabled = false;
+            }
+        }
+
+        async function stopPlay() {
+            document.getElementById('btn-stop').disabled = true;
+            try {
+                const res = await fetch('/api/play/stop', { method: 'POST' });
+                const result = await res.json();
+                if (result.error) {
+                    showToast(result.error, 'error');
+                    document.getElementById('btn-stop').disabled = false;
+                } else {
+                    showToast('游戏已停止');
+                    updatePlayButtons('idle');
+                }
+            } catch (e) {
+                showToast('停止失败', 'error');
+                document.getElementById('btn-stop').disabled = false;
+            }
+        }
+
+        async function pausePlay() {
+            document.getElementById('btn-pause').disabled = true;
+            try {
+                const res = await fetch('/api/play/pause', { method: 'POST' });
+                const result = await res.json();
+                if (result.status === 'paused') {
+                    showToast('已暂停');
+                    updatePlayButtons('paused');
+                } else {
+                    showToast(result.error || '暂停失败', 'error');
+                    document.getElementById('btn-pause').disabled = false;
+                }
+            } catch (e) {
+                showToast('暂停失败', 'error');
+                document.getElementById('btn-pause').disabled = false;
+            }
+        }
+
+        async function resumePlay() {
+            document.getElementById('btn-pause').disabled = true;
+            try {
+                const res = await fetch('/api/play/resume', { method: 'POST' });
+                const result = await res.json();
+                if (result.status === 'running') {
+                    showToast('已恢复');
+                    updatePlayButtons('running');
+                } else {
+                    showToast(result.error || '恢复失败', 'error');
+                    document.getElementById('btn-pause').disabled = false;
+                }
+            } catch (e) {
+                showToast('恢复失败', 'error');
+                document.getElementById('btn-pause').disabled = false;
+            }
+        }
+
+        function updatePlayButtons(status) {
+            const btnStart = document.getElementById('btn-start');
+            const btnPause = document.getElementById('btn-pause');
+            const btnStop = document.getElementById('btn-stop');
+            if (status === 'running') {
+                btnStart.disabled = true;
+                btnPause.disabled = false; btnPause.textContent = '暂停';
+                btnPause.onclick = pausePlay; btnPause.className = 'btn btn-orange';
+                btnStop.disabled = false;
+            } else if (status === 'paused') {
+                btnStart.disabled = true;
+                btnPause.disabled = false; btnPause.textContent = '恢复';
+                btnPause.onclick = resumePlay; btnPause.className = 'btn btn-green';
+                btnStop.disabled = false;
+            } else if (status === 'error') {
+                btnStart.disabled = true;
+                btnPause.disabled = true; btnPause.textContent = '暂停';
+                btnPause.className = 'btn btn-orange';
+                btnStop.disabled = false;
+            } else {
+                // idle 或其他
+                btnStart.disabled = false;
+                btnPause.disabled = true; btnPause.textContent = '暂停';
+                btnPause.onclick = pausePlay; btnPause.className = 'btn btn-orange';
+                btnStop.disabled = true;
+            }
+        }
+
+        async function refreshPlayStatus() {
+            try {
+                const res = await fetch('/api/play/status');
+                const s = await res.json();
+                document.getElementById('stat-status').textContent = s.status.toUpperCase();
+                document.getElementById('stat-rounds').textContent = s.round_count;
+                document.getElementById('stat-actions').textContent = s.total_actions;
+                document.getElementById('stat-game').textContent = s.game_name || '-';
+                const dot = document.getElementById('statusDot');
+                dot.className = 'dot' + (s.status !== 'idle' ? ' ' + s.status : '');
+                const navStatus = document.getElementById('navStatus');
+                navStatus.textContent = s.status === 'idle' ? '' : s.game_name + ' \u00b7 ' + s.status;
+                updatePlayButtons(s.status);
+            } catch (e) {}
+        }
+
+        async function refreshDecisions() {
+            try {
+                const res = await fetch('/api/play/decisions?limit=20');
+                const decisions = await res.json();
+                const container = document.getElementById('decision-chain');
+                if (!decisions || decisions.length === 0) {
+                    container.innerHTML = '<div class="feed-empty">选择游戏并点击「开始游玩」，AI 决策将在此实时展示</div>';
+                    return;
+                }
+                const reversed = [...decisions].reverse();
+                container.innerHTML = reversed.map((d, idx) => renderDecision(d, idx === 0)).join('');
+            } catch (e) {}
+        }
+
+        function renderDecision(d, isLatest) {
+            const confClass = d.confidence >= 0.8 ? 'conf-high' : d.confidence >= 0.5 ? 'conf-mid' : 'conf-low';
+            if (d.skipped) {
+                return `<div class="feed-item skipped"><div class="feed-head">
+                    <span class="feed-badge round">R${d.round}</span>
+                    <span class="feed-time">${d.time}</span>
+                    <span class="feed-skip">${d.skipped}</span>
+                </div></div>`;
+            }
+            if (d.error && !d.analysis) {
+                return `<div class="feed-item error"><div class="feed-head">
+                    <span class="feed-badge round">R${d.round}</span>
+                    <span class="feed-time">${d.time}</span>
+                    <span class="feed-error">${d.error}</span>
+                </div></div>`;
+            }
+            const actionsHtml = (d.actions || []).map(a => {
+                const coords = (a.x != null && a.y != null) ? `(${a.x.toFixed(3)}, ${a.y.toFixed(3)})` : '';
+                return `<div class="feed-action">
+                    <span class="feed-action-type">${a.action}</span>
+                    ${coords ? `<span class="feed-action-coords">${coords}</span>` : ''}
+                    <span class="feed-action-reason">${a.reason || ''}</span>
+                </div>`;
+            }).join('');
+            const screenshotHtml = d.screenshot
+                ? `<div class="feed-thumb"><img src="data:image/jpeg;base64,${d.screenshot}" alt="截图"></div>` : '';
+            return `<div class="feed-item ${d.error ? 'error' : ''}">
+                <div class="feed-head">
+                    <span class="feed-badge ${isLatest ? 'latest' : 'round'}">${isLatest ? '最新' : 'R' + d.round}</span>
+                    <span class="feed-time">${d.time}</span>
+                    <span class="feed-conf ${confClass}">${(d.confidence * 100).toFixed(0)}%</span>
+                    <span class="feed-elapsed">${d.elapsed_s}s</span>
+                    ${d.executed > 0 ? `<span class="feed-ops">${d.executed} 次操作</span>` : ''}
+                </div>
+                <div class="feed-body">
+                    ${screenshotHtml}
+                    <div>
+                        <div class="feed-analysis">${d.analysis || ''}</div>
+                        <div class="feed-actions">${actionsHtml}</div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        let decisionInterval = null;
+        function setupDecisionRefresh() {
+            const cb = document.getElementById('decision-auto-refresh');
+            function toggle() {
+                clearInterval(decisionInterval);
+                if (cb.checked) {
+                    decisionInterval = setInterval(() => { refreshDecisions(); refreshPlayStatus(); }, 2000);
+                }
+            }
+            cb.addEventListener('change', toggle);
+            toggle();
+        }
+
+        // ══════════════════════════════
+        // ── 配置相关 ──
+        // ══════════════════════════════
+
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const cfg = await res.json();
+                document.getElementById('key-anthropic').value = cfg.api_keys?.anthropic || '';
+                document.getElementById('key-claude-url').value = cfg.api_keys?.claude_base_url || '';
+                document.getElementById('key-openai').value = cfg.api_keys?.openai || '';
+                document.getElementById('key-openai-url').value = cfg.api_keys?.openai_base_url || '';
+                document.getElementById('key-local-url').value = cfg.api_keys?.local_base_url || 'http://localhost:11434';
+                document.getElementById('ai-provider').value = cfg.ai?.provider || 'claude';
+                document.getElementById('ai-claude-model').value = cfg.ai?.claude_model || '';
+                document.getElementById('ai-openai-model').value = cfg.ai?.openai_model || '';
+                document.getElementById('ai-local-model').value = cfg.ai?.local_model || '';
+                document.getElementById('set-interval').value = cfg.game_loop?.capture_interval ?? 2.0;
+                document.getElementById('set-delay').value = cfg.game_loop?.action_delay ?? 0.5;
+                document.getElementById('set-threshold').value = cfg.game_loop?.change_threshold ?? 0.02;
+                document.getElementById('set-quality').value = cfg.game_loop?.screenshot_quality ?? 75;
+                document.getElementById('set-maxwidth').value = cfg.game_loop?.screenshot_max_width ?? 1280;
+                document.getElementById('set-vd-enabled').value = String(cfg.virtual_desktop?.enabled ?? true);
+                document.getElementById('set-vd-cleanup').value = String(cfg.virtual_desktop?.auto_cleanup ?? true);
+            } catch (e) { showToast('加载配置失败：' + e.message, 'error'); }
+        }
+
+        async function saveKeys() {
+            const data = {
+                anthropic: document.getElementById('key-anthropic').value,
+                claude_base_url: document.getElementById('key-claude-url').value,
+                openai: document.getElementById('key-openai').value,
+                openai_base_url: document.getElementById('key-openai-url').value,
+                local_base_url: document.getElementById('key-local-url').value,
+            };
+            try {
+                const res = await fetch('/api/keys', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                showToast('API 密钥已保存');
+            } catch (e) { showToast('保存失败：' + e.message, 'error'); }
+        }
+
+        async function saveAIConfig() {
+            const config = await (await fetch('/api/config/raw')).json();
+            config.ai = {
+                provider: document.getElementById('ai-provider').value,
+                claude_model: document.getElementById('ai-claude-model').value,
+                openai_model: document.getElementById('ai-openai-model').value,
+                local_model: document.getElementById('ai-local-model').value,
+            };
+            try {
+                const res = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                showToast('模型设置已保存');
+            } catch (e) { showToast('保存失败：' + e.message, 'error'); }
+        }
+
+        async function saveSettings() {
+            const config = await (await fetch('/api/config/raw')).json();
+            config.game_loop = {
+                capture_interval: parseFloat(document.getElementById('set-interval').value),
+                action_delay: parseFloat(document.getElementById('set-delay').value),
+                change_threshold: parseFloat(document.getElementById('set-threshold').value),
+                screenshot_quality: parseInt(document.getElementById('set-quality').value),
+                screenshot_max_width: parseInt(document.getElementById('set-maxwidth').value),
+            };
+            config.virtual_desktop = {
+                enabled: document.getElementById('set-vd-enabled').value === 'true',
+                auto_cleanup: document.getElementById('set-vd-cleanup').value === 'true',
+            };
+            try {
+                const res = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                showToast('设置已保存');
+            } catch (e) { showToast('保存失败：' + e.message, 'error'); }
+        }
+
+        // ══════════════════════════════
+        // ── 游戏管理 (支持编辑) ──
+        // ══════════════════════════════
+
+        let _editingGame = null;  // 当前正在编辑的游戏名
+        let _gamesCache = {};     // 缓存游戏数据
+
+        async function loadGames() {
+            try {
+                const res = await fetch('/api/games');
+                _gamesCache = await res.json();
+                const list = document.getElementById('game-list');
+                const names = Object.keys(_gamesCache);
+                if (names.length === 0) {
+                    list.innerHTML = '<p class="muted">暂无配置的游戏</p>';
+                    return;
+                }
+                list.innerHTML = names.map(name => {
+                    const g = _gamesCache[name];
+                    const isEditing = _editingGame === name;
+                    const skillsText = (g.skills || []).join(', ');
+                    return `<div class="game-item ${isEditing ? 'editing' : ''}" onclick="editGame('${name}')">
+                        <div class="game-info">
+                            <div class="game-name">${name}${isEditing ? '<span class="game-edit-hint">编辑中</span>' : ''}</div>
+                            <div class="game-meta">${g.window_title || ''} \u00b7 ${g.ai_provider || 'claude'} \u00b7 ${g.capture_interval || 2.0}s${skillsText ? ' \u00b7 ' + skillsText : ''}</div>
+                        </div>
+                        <div class="game-actions" onclick="event.stopPropagation()">
+                            <button class="btn btn-ghost btn-sm" onclick="editGame('${name}')">编辑</button>
+                            <button class="btn btn-red btn-sm" onclick="deleteGame('${name}')">删除</button>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (e) { showToast('加载游戏列表失败', 'error'); }
+        }
+
+        function editGame(name) {
+            const g = _gamesCache[name];
+            if (!g) return;
+
+            _editingGame = name;
+
+            // 填充表单
+            document.getElementById('game-name').value = name;
+            document.getElementById('game-name').disabled = true;  // 编辑时不能改名
+            document.getElementById('game-window').value = g.window_title || '';
+            document.getElementById('game-path').value = g.path || '';
+            document.getElementById('game-ai').value = g.ai_provider || 'claude';
+            document.getElementById('game-interval').value = g.capture_interval || 2.0;
+            document.getElementById('game-strategy').value = g.strategy || '';
+            document.getElementById('game-skills').value = (g.skills || []).join(', ');
+
+            // 切换 UI 状态
+            document.getElementById('game-form-title').textContent = '编辑游戏';
+            document.getElementById('game-save-btn').textContent = '保存修改';
+            document.getElementById('game-cancel-btn').style.display = '';
+            document.getElementById('edit-banner').classList.add('show');
+            document.getElementById('edit-game-name').textContent = name;
+
+            // 滚动到表单
+            document.getElementById('game-form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            // 刷新列表高亮
+            loadGames();
+        }
+
+        function cancelEdit() {
+            _editingGame = null;
+
+            // 清空表单
+            document.getElementById('game-name').value = '';
+            document.getElementById('game-name').disabled = false;
+            document.getElementById('game-window').value = '';
+            document.getElementById('game-path').value = '';
+            document.getElementById('game-ai').value = 'claude';
+            document.getElementById('game-interval').value = '2.0';
+            document.getElementById('game-strategy').value = '';
+            document.getElementById('game-skills').value = '';
+
+            // 恢复 UI 状态
+            document.getElementById('game-form-title').textContent = '添加游戏';
+            document.getElementById('game-save-btn').textContent = '添加游戏';
+            document.getElementById('game-cancel-btn').style.display = 'none';
+            document.getElementById('edit-banner').classList.remove('show');
+
+            // 刷新列表去掉高亮
+            loadGames();
+        }
+
+        async function saveGame() {
+            const skillsRaw = document.getElementById('game-skills').value.trim();
+            const skills = skillsRaw ? skillsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const name = _editingGame || document.getElementById('game-name').value;
+            const data = {
+                name: name,
+                window_title: document.getElementById('game-window').value,
+                path: document.getElementById('game-path').value,
+                ai_provider: document.getElementById('game-ai').value,
+                capture_interval: parseFloat(document.getElementById('game-interval').value),
+                strategy: document.getElementById('game-strategy').value,
+                skills: skills,
+            };
+            if (!data.name) { showToast('请输入游戏名称', 'error'); return; }
+            try {
+                const res = await fetch('/api/games', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                showToast(_editingGame ? '游戏配置已更新' : '游戏已添加');
+                cancelEdit();
+                loadGames();
+                loadPlayGames();
+            } catch (e) { showToast('保存失败：' + e.message, 'error'); }
+        }
+
+        async function deleteGame(name) {
+            if (!confirm('确定删除「' + name + '」？')) return;
+            await fetch('/api/games/' + encodeURIComponent(name), { method: 'DELETE' });
+            showToast('已删除');
+            if (_editingGame === name) cancelEdit();
+            loadGames();
+            loadPlayGames();
+        }
+
+        // ── 日志 ──
+        async function refreshLogs() {
+            try {
+                const res = await fetch('/api/logs?lines=300');
+                const data = await res.json();
+                const el = document.getElementById('log-content');
+                el.textContent = data.logs || '暂无日志';
+                el.scrollTop = el.scrollHeight;
+            } catch (e) { document.getElementById('log-content').textContent = '加载日志失败'; }
+        }
+
+        async function clearLogs() {
+            await fetch('/api/logs/clear', { method: 'POST' });
+            document.getElementById('log-content').textContent = '日志已清空';
+            showToast('日志已清空');
+        }
+
+        let logInterval = null;
+        document.getElementById('log-auto-refresh').addEventListener('change', (e) => {
+            clearInterval(logInterval);
+            if (e.target.checked) logInterval = setInterval(refreshLogs, 5000);
+        });
+
+        function toggleKeyVisibility() {
+            ['key-anthropic', 'key-openai'].forEach(id => {
+                const el = document.getElementById(id);
+                el.type = el.type === 'password' ? 'text' : 'password';
+            });
+        }
+
+        // ── 初始化 ──
+        loadConfig();
+        loadGames();
+        loadPlayGames();
+        refreshPlayStatus();
+        setupDecisionRefresh();
+    </script>
+</body>
+</html>
