@@ -1,6 +1,6 @@
-# GAI MCP
+# GAI Play
 
-AI 自动游玩游戏的 MCP 工具。通过截图分析 + AI 决策 + 模拟操作，让 AI 自主玩游戏。
+AI 自动游玩游戏的独立工具。通过截图分析 + AI 决策 + 模拟操作，让 AI 自主玩游戏。
 
 借鉴 [Cradle](https://github.com/BAAI-Agents/Cradle) 架构，集成任务推断、自我反思、记忆系统、动态技能、分层决策五大高级能力。
 
@@ -41,7 +41,6 @@ AI 自动游玩游戏的 MCP 工具。通过截图分析 + AI 决策 + 模拟操
 ### 基础能力
 
 - **多 AI 引擎** — 支持 Claude、OpenAI、本地模型（Ollama）
-- **MCP 协议** — 作为 MCP Server 运行，可被 Claude Desktop 等客户端调用
 - **Web 控制台** — 浏览器管理游戏配置、实时查看 AI 决策链
 - **技能系统** — 通过 Markdown 文件注入游戏知识，提升 AI 表现
 - **虚拟桌面** — 自动创建独立桌面运行游戏，操作完切回
@@ -59,88 +58,47 @@ AI 自动游玩游戏的 MCP 工具。通过截图分析 + AI 决策 + 模拟操
 
 所有高级功能默认启用，可在配置中独立开关。
 
-## 安装
+## 安装 & 启动
+
+### 方式一：直接运行 exe（推荐）
+
+从 [Releases](../../releases) 下载最新版，解压后双击 `gai-play.exe`，浏览器自动打开控制台。
+
+### 方式二：源码运行
 
 ```bash
 # 克隆仓库
-git clone https://github.com/RikkaBunny/gai-mcp.git
-cd gai-mcp
+git clone https://github.com/RikkaBunny/gai_play.git
+cd gai_play
 
 # 安装依赖
 pip install -e .
+
+# 启动 Web 控制台
+gai-play
 ```
 
 > 需要 Python 3.11+，仅支持 Windows。
 
 ## 使用方式
 
-### 1. Web 控制台
+启动后浏览器自动打开 `http://localhost:9966`，在控制台中：
+
+1. **API Keys** — 配置 Anthropic / OpenAI API 密钥
+2. **游戏管理** — 添加游戏（路径、窗口标题、AI 策略）
+3. **选择游戏** → 点击「开始游玩」
+
+### 打包 exe
 
 ```bash
-gai-mcp-web
-```
-
-浏览器自动打开 `http://localhost:9966`，在页面上：
-
-1. 配置 API 密钥（API Keys 页面）
-2. 添加游戏（游戏管理页面）
-3. 选择游戏，点击「开始游玩」
-
-### 2. MCP Server
-
-```bash
-gai-mcp
-```
-
-在支持 MCP 的客户端（如 Claude Desktop）中添加此工具，即可通过对话控制游戏。
-
-**MCP 工具列表：**
-
-| 工具 | 说明 |
-|------|------|
-| `list_windows` | 列出所有可见窗口 |
-| `start_game` | 开始自动游玩 |
-| `stop_game` | 停止游玩 |
-| `pause_game` | 暂停 |
-| `resume_game` | 恢复 |
-| `get_status` | 获取当前状态 |
-| `set_strategy` | 更新游戏策略提示词 |
-| `screenshot` | 手动截图 |
-| `execute_action` | 手动执行操作 |
-
-### 3. CLI 命令行
-
-```bash
-# 列出窗口
-gai-play list
-
-# 直接游玩
-gai-play play "游戏窗口标题" --provider local --model llava
-
-# 游玩预配置的游戏
-gai-play play-game 三色绘恋
-
-# 手动截图
-gai-play screenshot "游戏窗口标题" --output shot.jpg
-```
-
-### 4. Claude Desktop 配置
-
-在 `claude_desktop_config.json` 中添加：
-
-```json
-{
-  "mcpServers": {
-    "gai-mcp": {
-      "command": "gai-mcp"
-    }
-  }
-}
+pip install pyinstaller
+python build_exe.py
+# 产物: dist/gai-play/gai-play.exe
 ```
 
 ## 配置说明
 
-首次运行后，配置文件保存在 `~/.gai_mcp/user_config.json`。
+首次运行后，配置文件保存在 `~/.gai_play/user_config.json`。
 
 ```yaml
 # API 密钥
@@ -222,36 +180,27 @@ advanced:
 
 开启 `dynamic_skills_enabled` 后，AI 在游玩中可以自动生成技能：
 
-- 存储在 `~/.gai_mcp/dynamic_skills/{游戏名}.json`
+- 存储在 `~/.gai_play/dynamic_skills/{游戏名}.json`
 - 按场景关键词检索最相关的技能
 - 跟踪每个技能的成功/失败率
 - 自动淘汰表现差的技能（失败率 > 80%）
-
-AI 会将这些知识作为参考，但保留自主判断权。
 
 ## 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           入口层                                    │
-│  ┌─────────────┐    ┌─────────────┐    ┌──────────────────────┐    │
-│  │ MCP Server  │    │   CLI 工具  │    │    Web 控制台        │    │
-│  │ server.py   │    │   cli.py    │    │    web/app.py        │    │
-│  │   gai-mcp   │    │  gai-play   │    │   gai-mcp-web :9966 │    │
-│  └──────┬──────┘    └──────┬──────┘    └──────────┬───────────┘    │
-│         │                  │                      │                │
-│         └──────────────────┼──────────────────────┘                │
-│                            ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                  GameController  (core.py)                  │   │
-│  │            核心编排器 — 初始化所有组件、管理会话              │   │
-│  └──────────────────────────┬──────────────────────────────────┘   │
-└─────────────────────────────┼──────────────────────────────────────┘
-                              │
-                              ▼
+│                    ┌──────────────────────┐                         │
+│                    │    Web 控制台        │                         │
+│                    │    web/app.py        │                         │
+│                    │   gai-play  :9966    │                         │
+│                    └──────────┬───────────┘                         │
+└───────────────────────────────┼─────────────────────────────────────┘
+                                │
+                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     GameLoop  (game_loop.py)                        │
-│                        10 步增强核心循环                             │
+│                  GameRunner  (web/game_runner.py)                    │
+│                     10 步增强核心循环                                │
 │                                                                     │
 │   ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  ┌───────┐  │
 │   │ 1.截图  │→ │2.本地CV  │→ │3.注入    │→ │4.AI    │→ │5.更新 │  │
@@ -272,7 +221,7 @@ AI 会将这些知识作为参考，但保留自主判断权。
 │  │ F1 任务推断  │  │ Engine        │  │ F3 记忆系统             │  │
 │  │              │  │ F2 自我反思   │  │                         │  │
 │  │ ·当前任务    │  │               │  │ ·ShortTermMemory        │  │
-│  │ ·子目标管理  │  │ ·前后截图diff │  │   最近N帧滑动窗口      │  │
+│  │ ·子目标管理  │  │ ·前后截图diff │  │   最近N帧滑动窗口       │  │
 │  │ ·任务切换    │  │ ·3x3区域分析  │  │ ·LongTermMemory         │  │
 │  │ ·卡住检测    │  │ ·调整建议     │  │   持久化经验库(JSON)    │  │
 │  │ ·历史追踪    │  │ ·自动重试     │  │ ·操作循环检测           │  │
@@ -318,10 +267,10 @@ AI 会将这些知识作为参考，但保留自主判断权。
 
                       ┌──────────────────────┐
                       │    持久化存储         │
-                      │    ~/.gai_mcp/       │
+                      │    ~/.gai_play/      │
                       │                      │
                       │  user_config.json    │
-                      │  gai_mcp.log         │
+                      │  gai_play.log        │
                       │  experiences/*.json  │
                       │  dynamic_skills/     │
                       │    *.json            │
@@ -331,42 +280,42 @@ AI 会将这些知识作为参考，但保留自主判断权。
 ## 项目结构
 
 ```
-src/gai_mcp/
-├── server.py            # MCP Server 入口
-├── core.py              # GameController 核心编排器
-├── game_loop.py         # 10步增强核心循环
-├── capturer.py          # 窗口截图（Win32 PrintWindow）
-├── input_controller.py  # 键鼠模拟（Win32 消息）
-├── virtual_desktop.py   # 虚拟桌面管理
-├── cli.py               # CLI 命令行工具
+gai_play/
+├── entry_web.py         # PyInstaller 打包入口
+├── build_exe.py         # 打包脚本
+├── config.yaml          # 默认配置参考
+├── skills/              # 静态技能文件 (.md)
 │
-├── models.py            # 基础数据模型
-├── models_advanced.py   # 高级功能数据模型 ★
-├── config_manager.py    # 配置管理
-│
-├── task_manager.py      # F1 任务推断 + 子目标管理 ★
-├── reflection.py        # F2 自我反思引擎 ★
-├── memory.py            # F3 短期记忆 + 长期经验库 ★
-├── skill_manager.py     # F4 动态技能管理 ★
-├── local_analyzer.py    # F5 分层决策（本地CV）★
-│
-├── ai_engine/
-│   ├── base.py          # AI 引擎基类 + 系统提示词 + 上下文注入
-│   ├── claude.py        # Claude 引擎
-│   ├── openai.py        # OpenAI 引擎
-│   └── local.py         # 本地模型引擎（Ollama）
-│
-└── web/
-    ├── app.py           # Web API 路由
-    ├── game_runner.py   # Web 游戏运行器（集成高级功能）
-    └── static/          # 前端页面
+└── src/gai_play/
+    ├── game_loop.py         # 10步增强核心循环
+    ├── capturer.py          # 窗口截图（Win32 PrintWindow）
+    ├── input_controller.py  # 键鼠模拟（Win32 消息）
+    ├── virtual_desktop.py   # 虚拟桌面管理
+    │
+    ├── models.py            # 基础数据模型
+    ├── models_advanced.py   # 高级功能数据模型
+    ├── config_manager.py    # 配置管理
+    │
+    ├── task_manager.py      # F1 任务推断 + 子目标管理
+    ├── reflection.py        # F2 自我反思引擎
+    ├── memory.py            # F3 短期记忆 + 长期经验库
+    ├── skill_manager.py     # F4 动态技能管理
+    ├── local_analyzer.py    # F5 分层决策（本地CV）
+    │
+    ├── ai_engine/
+    │   ├── base.py          # AI 引擎基类 + 系统提示词
+    │   ├── claude.py        # Claude 引擎
+    │   ├── openai.py        # OpenAI 引擎
+    │   └── local.py         # 本地模型引擎（Ollama）
+    │
+    └── web/
+        ├── app.py           # Web API 路由
+        ├── game_runner.py   # Web 游戏运行器
+        ├── run.py           # uvicorn 启动器
+        └── static/          # 前端页面
 ```
 
-> ★ 标记为新增的高级功能模块
-
-## 数据流
-
-### AI 决策输出格式
+## AI 决策输出格式
 
 ```json
 {
@@ -390,38 +339,12 @@ src/gai_mcp/
 - `new_skill` — AI 生成的可复用技能（动态技能用）
 - 以上均为可选字段，向后兼容
 
-### 持久化文件
-
-```
-~/.gai_mcp/
-├── user_config.json          # 用户配置
-├── gai_mcp.log               # 运行日志（自动轮转 5MB×3）
-├── experiences/
-│   ├── 三色绘恋.json         # 长期经验库（按游戏分文件）
-│   └── Minesweeper.json
-└── dynamic_skills/
-    ├── 三色绘恋.json         # 动态技能库（按游戏分文件）
-    └── Minesweeper.json
-```
-
-## 升级对比
-
-| 维度 | 升级前 | 升级后 |
-|------|--------|--------|
-| 决策方式 | 每帧独立决策 | 任务推断 + 子目标管理 |
-| 操作验证 | 执行后不验证 | 前后截图对比 + 区域分析 |
-| 上下文记忆 | 仅上一帧分析 | 短期滑动窗口 + 长期经验库 |
-| 技能系统 | 静态 .md 文件 | 静态 + AI 动态生成 + 自动淘汰 |
-| API 调用 | 每帧必调 LLM | 本地 CV 处理简单帧，按需调 LLM |
-| 系统提示词 | 基础操作指令 | + 任务追踪 / 经验记录 / 技能生成 |
-| 持久化 | 仅配置文件 | + 经验库 + 动态技能库 |
-
 ## 注意事项
 
 - 本地模型必须支持视觉（如 `llava`、`qwen2.5-vl`），纯文本模型无法分析截图
 - 虚拟桌面功能依赖 Windows 10/11 的多桌面特性
 - AI 操作使用归一化坐标（0.0-1.0），自动适配不同分辨率
-- 高级功能的长期记忆和动态技能会在 `~/.gai_mcp/` 下生成 JSON 文件
+- 高级功能的长期记忆和动态技能会在 `~/.gai_play/` 下生成 JSON 文件
 - 分层决策可显著降低 API 成本，尤其适合对话类/回合制游戏
 
 ## License

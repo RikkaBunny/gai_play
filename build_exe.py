@@ -1,4 +1,4 @@
-"""PyInstaller 打包入口 - 生成两个 exe"""
+"""PyInstaller 打包入口 - 生成 gai-play.exe (Web 控制台)"""
 
 import subprocess
 import sys
@@ -35,29 +35,14 @@ COMMON_ARGS = [
 ]
 
 
-def build_cli():
-    """打包 gai-play.exe (命令行工具)"""
+def build():
+    """打包 gai-play.exe (Web 控制台)"""
     print("=" * 50)
     print("打包 gai-play.exe ...")
     print("=" * 50)
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name=gai-play",
-        "--console",
-        *COMMON_ARGS,
-        str(ROOT / "entry_cli.py"),
-    ]
-    subprocess.run(cmd, check=True)
-
-
-def build_web():
-    """打包 gai-web.exe (Web 控制台)"""
-    print("=" * 50)
-    print("打包 gai-web.exe ...")
-    print("=" * 50)
-    cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--name=gai-web",
         "--console",
         f"--add-data={STATIC};gai_play/web/static",
         "--hidden-import=uvicorn",
@@ -80,10 +65,8 @@ def build_web():
 
 
 if __name__ == "__main__":
-    build_cli()
-    build_web()
+    build()
     print("\n" + "=" * 50)
-    print("打包完成！输出目录: dist/")
+    print("打包完成！输出目录: dist/gai-play/")
     print("  dist/gai-play/gai-play.exe")
-    print("  dist/gai-web/gai-web.exe")
     print("=" * 50)
