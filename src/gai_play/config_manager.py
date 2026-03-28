@@ -63,7 +63,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "三色绘恋": {
             "path": r"C:\BunnyAPP\Steam\steamapps\common\Tricolour Lovestory\TricolourLovestory_chs.exe",
             "window_title": "Tricolour Lovestory",
-            "strategy": "你正在玩一款中文视觉小说《三色绘恋》。你的目标是推进剧情、体验故事、在选项中做出有趣的选择。",
+            "strategy": "你正在玩一款中文视觉小说《三色绘恋》（Tricolour Lovestory）。这是一部校园恋爱故事，你扮演男主角。你的目标是：1) 持续点击推进对话剧情；2) 遇到选项时，优先选择温柔体贴、主动关心女主角的选项；3) 不要点击顶部菜单栏的 SYSTEM / EXIT 等按钮。保持故事流畅推进，享受剧情。",
             "skills": ["galgame.md", "tricolour_lovestory.md"],
             "ai_provider": "local",
             "capture_interval": 3.0,
