@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 
 from ..models import AIDecision, ActionType, GameAction
@@ -119,6 +120,7 @@ class AIEngine(ABC):
 
         try:
             raw = await self._call_api(screenshot_base64, user_prompt)
+            logger.debug(f"AI 原始返回 (前500字): {raw[:500]}")
             return self._parse_response(raw)
         except Exception as e:
             logger.error(f"AI 分析失败: {e}")
@@ -131,21 +133,101 @@ class AIEngine(ABC):
             )
 
     def _parse_response(self, raw: str) -> AIDecision:
-        """解析 AI 返回的 JSON"""
+        """解析 AI 返回的 JSON，多重容错"""
+        if not raw or not raw.strip():
+            raise ValueError("AI 返回了空内容")
+
         text = raw.strip()
+
+        # 1. 提取 ```json ... ``` 代码块
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
 
+        # 2. 直接解析
         try:
             data = json.loads(text)
             return AIDecision(**data)
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"JSON 解析失败，尝试宽松解析: {e}")
-            start = text.find("{")
-            end = text.rfind("}") + 1
-            if start >= 0 and end > start:
-                data = json.loads(text[start:end])
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # 3. 提取最外层 { ... } 再解析
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            fragment = text[start:end]
+            try:
+                data = json.loads(fragment)
                 return AIDecision(**data)
-            raise
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+            # 4. 修复常见 JSON 格式问题后再试
+            fixed = self._fix_json(fragment)
+            try:
+                data = json.loads(fixed)
+                logger.info("JSON 修复成功")
+                return AIDecision(**data)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # 5. 都失败了，尝试从文本中提取关键字段构造决策
+        logger.warning(f"JSON 解析全部失败，尝试从文本提取。原始内容: {text[:300]}")
+        return self._fallback_parse(text)
+
+    @staticmethod
+    def _fix_json(text: str) -> str:
+        """尝试修复常见的 JSON 格式问题"""
+        # 去掉行尾注释 // ...
+        text = re.sub(r'//[^\n]*', '', text)
+        # 去掉尾部多余逗号 ,} 或 ,]
+        text = re.sub(r',\s*([}\]])', r'\1', text)
+        # 单引号换双引号
+        # (只处理 key: 'value' 这种简单情况，避免误伤)
+        text = re.sub(r"(?<=[\[{,:])\s*'([^']*?)'\s*(?=[,\]}])", r'"\1"', text)
+        # 修复没有逗号的换行 "key": "value"\n"key2"
+        text = re.sub(r'"\s*\n\s*"', '",\n"', text)
+        # 修复 } 后缺逗号接 {
+        text = re.sub(r'}\s*{', '},{', text)
+        return text
+
+    @staticmethod
+    def _fallback_parse(text: str) -> AIDecision:
+        """最终兜底：从 AI 返回的文本中提取信息构造决策"""
+        # 尝试提取 analysis
+        analysis = text[:200] if text else "AI 返回了无法解析的内容"
+
+        # 尝试匹配 click 坐标
+        actions = []
+        click_match = re.search(
+            r'"action"\s*:\s*"(\w+)".*?"x"\s*:\s*([\d.]+).*?"y"\s*:\s*([\d.]+)',
+            text, re.DOTALL
+        )
+        if click_match:
+            try:
+                actions.append(GameAction(
+                    action=ActionType(click_match.group(1)),
+                    x=float(click_match.group(2)),
+                    y=float(click_match.group(3)),
+                    reason="从损坏的 JSON 中提取",
+                ))
+            except (ValueError, KeyError):
+                pass
+
+        # 如果什么操作都没提取到，给一个等待
+        if not actions:
+            actions.append(GameAction(
+                action=ActionType.WAIT, duration=1.0,
+                reason="AI 返回格式异常，等待重试",
+            ))
+
+        # 尝试提取 confidence
+        conf_match = re.search(r'"confidence"\s*:\s*([\d.]+)', text)
+        confidence = float(conf_match.group(1)) if conf_match else 0.1
+
+        return AIDecision(
+            analysis=analysis,
+            actions=actions,
+            confidence=min(confidence, 0.5),  # 兜底解析的结果降低置信度
+        )
