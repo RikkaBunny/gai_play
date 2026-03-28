@@ -48,6 +48,17 @@ class OpenAIEngine(AIEngine):
                 },
             ],
         )
-        if not response.choices or not response.choices[0].message.content:
-            raise RuntimeError(f"OpenAI 返回了空响应")
-        return response.choices[0].message.content
+        if not response.choices:
+            raise RuntimeError("OpenAI 返回了空响应")
+        msg = response.choices[0].message
+        # 优先取 content，兼容推理模型的 reasoning 字段
+        content = msg.content or ""
+        if not content and hasattr(msg, "reasoning") and msg.reasoning:
+            content = msg.reasoning
+        if not content:
+            # 兜底：尝试从原始数据中提取
+            raw = msg.model_dump() if hasattr(msg, "model_dump") else {}
+            content = raw.get("reasoning") or raw.get("reasoning_content") or ""
+        if not content:
+            raise RuntimeError("OpenAI 返回了空响应")
+        return content
