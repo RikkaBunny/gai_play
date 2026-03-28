@@ -361,23 +361,7 @@ class GameRunner:
 
                 # 4. 执行操作
                 if decision.actions and decision.confidence > 0.1:
-                    # 激活窗口（用 AttachThreadInput 绕过 Windows 前台限制）
-                    try:
-                        import ctypes
-                        fore_thread = ctypes.windll.user32.GetWindowThreadProcessId(
-                            ctypes.windll.user32.GetForegroundWindow(), None
-                        )
-                        target_thread = ctypes.windll.user32.GetWindowThreadProcessId(hwnd, None)
-                        if fore_thread != target_thread:
-                            ctypes.windll.user32.AttachThreadInput(fore_thread, target_thread, True)
-                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                        win32gui.SetForegroundWindow(hwnd)
-                        if fore_thread != target_thread:
-                            ctypes.windll.user32.AttachThreadInput(fore_thread, target_thread, False)
-                        await asyncio.sleep(0.3)
-                    except Exception as e:
-                        logger.warning(f"激活窗口失败: {e}")
-
+                    # 后台消息模式，不需要激活窗口
                     executed = await input_ctrl.execute_actions(
                         decision.actions, delay=0.5
                     )
