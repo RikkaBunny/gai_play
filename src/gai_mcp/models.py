@@ -55,6 +55,15 @@ class AIDecision(BaseModel):
     # AI 的置信度 (0.0-1.0)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
+    # --- 高级功能扩展字段 (均可选，向后兼容) ---
+    # Feature 1: 任务推断 - AI 报告当前认为自己在做什么
+    current_task: Optional[str] = None
+    sub_goals: Optional[list[dict]] = None
+    # Feature 3: 长期记忆 - AI 可建议保存的经验
+    new_experience: Optional[str] = None
+    # Feature 4: 动态技能 - AI 可建议生成的技能
+    new_skill: Optional[dict] = None
+
 
 class SessionStatus(str, enum.Enum):
     """游戏会话状态"""
@@ -101,3 +110,6 @@ class GameConfig(BaseModel):
 
     # 截图感兴趣区域 (归一化坐标)
     roi: Optional[tuple[float, float, float, float]] = None
+
+    # 高级功能配置 (None 表示全部关闭，向后兼容)
+    advanced: Optional[dict] = None

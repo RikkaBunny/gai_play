@@ -41,6 +41,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "auto_cleanup": True,
     },
+    # 高级功能配置
+    "advanced": {
+        "task_inference_enabled": True,
+        "reflection_enabled": True,
+        "reflection_diff_threshold": 0.005,
+        "reflection_max_retries": 2,
+        "memory_enabled": True,
+        "short_term_capacity": 10,
+        "long_term_enabled": True,
+        "dynamic_skills_enabled": True,
+        "max_dynamic_skills": 50,
+        "layered_decision_enabled": True,
+        "local_cv_change_threshold": 0.01,
+        "static_frame_patience": 3,
+    },
     "games": {
         "三色绘恋": {
             "path": r"C:\BunnyAPP\Steam\steamapps\common\Tricolour Lovestory\TricolourLovestory_chs.exe",

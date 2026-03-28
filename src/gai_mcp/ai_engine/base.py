@@ -52,11 +52,39 @@ SYSTEM_PROMPT = """\
       "reason": "为什么执行这个操作"
     }
   ],
-  "confidence": 0.8
+  "confidence": 0.8,
+  "current_task": "当前你认为自己正在做的任务 (可选)",
+  "new_experience": "如果你学到了重要经验，写在这里 (可选)",
+  "new_skill": {
+    "name": "技能名称",
+    "trigger_condition": "什么场景触发",
+    "steps": "具体步骤"
+  }
 }
 ```
 
-只返回 JSON，不要包含其他文字。
+注意:
+- 只返回 JSON，不要包含其他文字
+- current_task, new_experience, new_skill 是可选字段，只在有必要时返回
+- current_task: 简短描述你当前的任务阶段，如 "对话中"、"战斗中"、"探索地图"、"选择菜单"
+- new_experience: 当你发现了重要的游戏机制或技巧时记录下来
+- new_skill: 当你总结出可复用的操作策略时生成技能
+"""
+
+# 高级功能的额外系统提示词
+ADVANCED_SYSTEM_ADDENDUM = """\
+
+## 高级能力
+你拥有记忆和学习能力。你可以:
+1. **记住自己在做什么** — 在 current_task 中持续报告任务阶段，保持连贯性
+2. **从经验中学习** — 当发现重要规律时，通过 new_experience 记录
+3. **生成可复用技能** — 当总结出通用策略时，通过 new_skill 分享给未来的自己
+4. **参考过往经验** — 下方会提供你之前积累的经验，请善用
+
+关于任务追踪:
+- 不要每帧都切换 current_task，保持任务的连贯性
+- 只在真正进入新阶段时才更新任务
+- 如果卡在同一个任务太久，主动尝试不同策略
 """
 
 
@@ -67,6 +95,12 @@ class AIEngine(ABC):
         self.model = model
         self._strategy_prompt: str = ""
         self._skills: list[dict] = []
+        self._advanced_enabled: bool = False
+        # 高级功能注入的上下文
+        self._task_context: str = ""
+        self._memory_context: str = ""
+        self._reflection_context: str = ""
+        self._experience_context: str = ""
 
     def set_strategy(self, prompt: str) -> None:
         """设置游戏策略目标"""
@@ -80,6 +114,32 @@ class AIEngine(ABC):
                 {"name": "技能名", "description": "描述", "content": "详细内容"}
         """
         self._skills = skills
+
+    def enable_advanced(self, enabled: bool = True) -> None:
+        """启用高级功能提示词"""
+        self._advanced_enabled = enabled
+
+    def set_task_context(self, context: str) -> None:
+        """注入任务推断上下文 (Feature 1)"""
+        self._task_context = context
+
+    def set_memory_context(self, context: str) -> None:
+        """注入短期记忆上下文 (Feature 3)"""
+        self._memory_context = context
+
+    def set_reflection_context(self, context: str) -> None:
+        """注入反思反馈上下文 (Feature 2)"""
+        self._reflection_context = context
+
+    def set_experience_context(self, context: str) -> None:
+        """注入长期经验上下文 (Feature 3)"""
+        self._experience_context = context
+
+    def get_system_prompt(self) -> str:
+        """获取完整的系统提示词"""
+        if self._advanced_enabled:
+            return SYSTEM_PROMPT + ADVANCED_SYSTEM_ADDENDUM
+        return SYSTEM_PROMPT
 
     def _build_user_prompt(self, game_context: str = "") -> str:
         """构建用户提示词"""
@@ -98,7 +158,24 @@ class AIEngine(ABC):
                 skill_text += f"\n### {name}\n{content}\n"
             parts.append(skill_text)
 
-        # 上下文
+        # --- 高级功能上下文 ---
+        # Feature 1: 任务状态
+        if self._task_context:
+            parts.append(f"## 当前任务状态\n{self._task_context}")
+
+        # Feature 2: 反思反馈
+        if self._reflection_context:
+            parts.append(f"## 操作反馈\n{self._reflection_context}")
+
+        # Feature 3: 短期记忆
+        if self._memory_context:
+            parts.append(f"## 近期记忆\n{self._memory_context}")
+
+        # Feature 3: 长期经验
+        if self._experience_context:
+            parts.append(f"## 历史经验\n{self._experience_context}")
+
+        # 基础上下文
         if game_context:
             parts.append(f"## 上下文\n{game_context}")
 

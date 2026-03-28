@@ -19,7 +19,13 @@ from ..ai_engine.local import LocalEngine
 from ..capturer import WindowCapturer
 from ..config_manager import apply_api_keys, load_config
 from ..input_controller import InputController
+from ..local_analyzer import LocalAnalyzer
+from ..memory import LongTermMemory, ShortTermMemory
 from ..models import ActionType, GameConfig, GameSession, SessionStatus
+from ..models_advanced import AdvancedConfig, ExperienceEntry
+from ..reflection import ReflectionEngine
+from ..skill_manager import SkillManager
+from ..task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
 
@@ -162,15 +168,61 @@ class GameRunner:
             engine.set_skills(skills)
             logger.info(f"已加载 {len(skills)} 个技能: {[s['name'] for s in skills]}")
 
-        # 输入控制器
-        input_ctrl = InputController(use_virtual_desktop=False)
+        # 输入控制器 (传入 capturer 以获取截图坐标元信息)
+        input_ctrl = InputController(use_virtual_desktop=False, capturer=capturer)
         input_ctrl.set_target_window(hwnd)
 
         capture_interval = game.get("capture_interval", 2.0)
 
+        # --- 高级功能初始化 ---
+        adv_raw = config.get("advanced", {})
+        adv_cfg = AdvancedConfig(**adv_raw) if adv_raw else AdvancedConfig()
+        any_advanced = (
+            adv_cfg.task_inference_enabled
+            or adv_cfg.reflection_enabled
+            or adv_cfg.memory_enabled
+            or adv_cfg.dynamic_skills_enabled
+            or adv_cfg.layered_decision_enabled
+        )
+
+        task_mgr = None
+        refl_engine = None
+        stm = None
+        ltm = None
+        skill_mgr = None
+        local_ana = None
+
+        if any_advanced:
+            engine.enable_advanced(True)
+
+        if adv_cfg.task_inference_enabled:
+            task_mgr = TaskManager()
+        if adv_cfg.reflection_enabled:
+            refl_engine = ReflectionEngine(
+                diff_threshold=adv_cfg.reflection_diff_threshold,
+                max_retries=adv_cfg.reflection_max_retries,
+            )
+        if adv_cfg.memory_enabled:
+            stm = ShortTermMemory(capacity=adv_cfg.short_term_capacity)
+            if adv_cfg.long_term_enabled:
+                ltm = LongTermMemory(game_id=game_name)
+        if adv_cfg.dynamic_skills_enabled:
+            skill_mgr = SkillManager(game_id=game_name, max_dynamic_skills=adv_cfg.max_dynamic_skills)
+            skill_mgr.set_static_skills(skills)
+            engine.set_skills(skill_mgr.get_all_skills())
+        if adv_cfg.layered_decision_enabled:
+            local_ana = LocalAnalyzer(
+                change_threshold=adv_cfg.local_cv_change_threshold,
+                static_frame_patience=adv_cfg.static_frame_patience,
+            )
+
         self.status = "running"
         self._task = asyncio.create_task(
-            self._loop(capturer, engine, input_ctrl, hwnd, capture_interval)
+            self._loop(
+                capturer, engine, input_ctrl, hwnd, capture_interval,
+                task_mgr=task_mgr, refl_engine=refl_engine,
+                stm=stm, ltm=ltm, skill_mgr=skill_mgr, local_ana=local_ana,
+            )
         )
         logger.info(f"游戏循环已启动: {game_name} (hwnd={hwnd})")
         return {"status": "running", "hwnd": hwnd, "game": game_name}
@@ -283,6 +335,13 @@ class GameRunner:
         input_ctrl: InputController,
         hwnd: int,
         interval: float,
+        # 高级功能组件
+        task_mgr: Optional[TaskManager] = None,
+        refl_engine: Optional[ReflectionEngine] = None,
+        stm: Optional[ShortTermMemory] = None,
+        ltm: Optional[LongTermMemory] = None,
+        skill_mgr: Optional[SkillManager] = None,
+        local_ana: Optional[LocalAnalyzer] = None,
     ) -> None:
         try:
             import win32gui, win32con
@@ -321,9 +380,51 @@ class GameRunner:
                 rec.screenshot_b64 = self._make_thumbnail(img)
                 logger.info(f"[Round {self.round_count}] 截图完成: {img.width}x{img.height}")
 
-                # 2. 每轮都交给 AI 分析，AI 自行判断是否需要操作
+                # 2. 分层决策检查 (Feature 5)
+                if local_ana:
+                    local_result = local_ana.analyze(img)
+                    if not local_result.needs_llm and local_result.suggested_action:
+                        decision = local_ana.create_local_decision(local_result)
+                        logger.info(f"[Round {self.round_count}] [本地决策] {local_result.reason}")
+
+                        rec.elapsed = 0.0
+                        rec.analysis = decision.analysis
+                        rec.confidence = decision.confidence
+                        rec.actions = [{"action": a.action.value, "x": a.x, "y": a.y, "reason": a.reason or ""} for a in decision.actions]
+
+                        if decision.actions and decision.confidence > 0.1:
+                            executed = await input_ctrl.execute_actions(decision.actions, delay=0.5)
+                            rec.executed = executed
+                            self.total_actions += executed
+
+                        if stm:
+                            stm.add_frame(decision.analysis, [a.action.value for a in decision.actions], confidence=decision.confidence)
+
+                        self.decisions.append(rec)
+                        await asyncio.sleep(interval)
+                        continue
+
+                # 3. 注入高级上下文
+                if task_mgr:
+                    engine.set_task_context(task_mgr.get_context_prompt())
+                if refl_engine:
+                    engine.set_reflection_context(refl_engine.get_reflection_context())
+                if stm:
+                    ctx = stm.get_context_prompt()
+                    if stm.detect_action_loop():
+                        ctx += "\n⚠️ 检测到操作循环！请尝试完全不同的策略。"
+                    engine.set_memory_context(ctx)
+                if ltm and self.decisions:
+                    last_analysis = ""
+                    for prev in reversed(list(self.decisions)):
+                        if prev.analysis:
+                            last_analysis = prev.analysis
+                            break
+                    if last_analysis:
+                        engine.set_experience_context(ltm.get_relevant_context(last_analysis))
+
+                # 4. AI 分析
                 screenshot_b64 = capturer.image_to_base64(img)
-                # 构建上下文：最近一次有效分析
                 context = ""
                 for prev in reversed(list(self.decisions)):
                     if prev.analysis:
@@ -353,15 +454,22 @@ class GameRunner:
                 logger.info(f"[Round {self.round_count}] AI 分析完成 ({elapsed:.1f}s)")
                 logger.info(f"[Round {self.round_count}] 分析结果: {decision.analysis}")
                 logger.info(f"[Round {self.round_count}] 置信度: {decision.confidence:.0%}")
+                if decision.current_task:
+                    logger.info(f"[Round {self.round_count}] 当前任务: {decision.current_task}")
                 for i, a in enumerate(decision.actions):
                     logger.info(
                         f"[Round {self.round_count}] 操作 {i+1}: "
                         f"{a.action.value} x={a.x} y={a.y} | {a.reason}"
                     )
 
-                # 4. 执行操作
+                # 5. 更新任务状态 (Feature 1)
+                if task_mgr:
+                    task_mgr.update_from_decision(decision)
+
+                # 6. 执行操作
+                before_img = img
+                executed = 0
                 if decision.actions and decision.confidence > 0.1:
-                    # 后台消息模式，不需要激活窗口
                     executed = await input_ctrl.execute_actions(
                         decision.actions, delay=0.5
                     )
@@ -373,6 +481,44 @@ class GameRunner:
                     )
                 else:
                     logger.info(f"[Round {self.round_count}] 置信度过低或无操作，跳过执行")
+
+                # 7. 自我反思 (Feature 2)
+                action_succeeded = None
+                if refl_engine and executed > 0:
+                    await asyncio.sleep(0.3)
+                    after_img = capturer.capture(hwnd)
+                    if after_img:
+                        reflection = refl_engine.reflect(before_img, after_img, decision.actions)
+                        action_succeeded = reflection.action_succeeded
+                        if not reflection.action_succeeded:
+                            logger.warning(f"[Round {self.round_count}] 反思: 操作可能失败")
+
+                # 8. 更新记忆 (Feature 3)
+                if stm:
+                    task_name = task_mgr.state.current_task if task_mgr else ""
+                    stm.add_frame(
+                        analysis=decision.analysis,
+                        actions_taken=[a.action.value for a in decision.actions],
+                        task=task_name,
+                        confidence=decision.confidence,
+                        action_succeeded=action_succeeded,
+                    )
+
+                if ltm and decision.new_experience:
+                    ltm.add_experience(ExperienceEntry(
+                        game_id=ltm.game_id,
+                        situation=decision.analysis[:100],
+                        action_taken=", ".join(a.action.value for a in decision.actions),
+                        outcome="成功" if action_succeeded else "待验证",
+                        lesson=decision.new_experience,
+                    ))
+
+                # 9. 动态技能生成 (Feature 4)
+                if skill_mgr and decision.new_skill:
+                    new_skill = skill_mgr.add_skill(decision.new_skill)
+                    if new_skill:
+                        logger.info(f"[Round {self.round_count}] AI 生成新技能: {new_skill.name}")
+                        engine.set_skills(skill_mgr.get_all_skills())
 
                 self.decisions.append(rec)
                 await asyncio.sleep(interval)

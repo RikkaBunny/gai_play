@@ -71,23 +71,41 @@ class InputController:
 
     使用 PostMessage/SendMessage 发送鼠标和键盘消息，
     不移动物理鼠标，不抢占键盘焦点。
+
+    坐标系说明:
+    - AI 返回归一化坐标 (0.0-1.0)，相对于它看到的截图
+    - 截图可能经过 ROI 裁剪和缩放，需要反向映射回客户区像素坐标
+    - 通过 capturer.last_capture_info 获取坐标转换信息
     """
 
     def __init__(
         self,
         vd_manager: Optional[VirtualDesktopManager] = None,
         use_virtual_desktop: bool = True,
+        capturer: Optional[object] = None,
     ) -> None:
         self.vd_manager = vd_manager
         self.use_virtual_desktop = use_virtual_desktop
         self._hwnd: Optional[int] = None
+        self._capturer = capturer  # WindowCapturer 引用，用于获取截图元信息
 
     def set_target_window(self, hwnd: int) -> None:
         """设置目标游戏窗口"""
         self._hwnd = hwnd
 
+    def set_capturer(self, capturer: object) -> None:
+        """设置 capturer 引用，用于获取截图坐标转换信息"""
+        self._capturer = capturer
+
     def _to_client_coords(self, norm_x: float, norm_y: float) -> tuple[int, int]:
-        """将归一化坐标 (0.0-1.0) 转换为客户区像素坐标"""
+        """将归一化坐标 (0.0-1.0) 转换为客户区像素坐标
+
+        处理流程:
+        1. AI 看到的是 (可能经过 ROI 裁剪 + 缩放后的) 截图
+        2. 归一化坐标是相对于该截图的
+        3. 如果有 ROI，需要将坐标映射回完整客户区
+        4. 最终得到物理像素坐标
+        """
         import win32gui
 
         if self._hwnd is None:
@@ -96,9 +114,35 @@ class InputController:
         norm_x = max(0.0, min(1.0, norm_x))
         norm_y = max(0.0, min(1.0, norm_y))
 
+        # 获取截图元信息
+        capture_info = None
+        if self._capturer and hasattr(self._capturer, "last_capture_info"):
+            capture_info = self._capturer.last_capture_info
+
+        # 如果有 ROI，将归一化坐标从 ROI 空间映射回完整客户区空间
+        if capture_info and capture_info.roi:
+            roi = capture_info.roi  # (x1, y1, x2, y2) 归一化
+            # ROI 内的 (norm_x, norm_y) → 完整客户区的归一化坐标
+            full_x = roi[0] + norm_x * (roi[2] - roi[0])
+            full_y = roi[1] + norm_y * (roi[3] - roi[1])
+            logger.debug(
+                f"ROI 坐标映射: ({norm_x:.3f},{norm_y:.3f}) "
+                f"→ 全局({full_x:.3f},{full_y:.3f})"
+            )
+            norm_x, norm_y = full_x, full_y
+
         client_rect = win32gui.GetClientRect(self._hwnd)
         cx = int(norm_x * client_rect[2])
         cy = int(norm_y * client_rect[3])
+
+        # 边界安全检查
+        cx = max(0, min(cx, client_rect[2] - 1))
+        cy = max(0, min(cy, client_rect[3] - 1))
+
+        logger.debug(
+            f"坐标转换: norm({norm_x:.3f},{norm_y:.3f}) "
+            f"→ pixel({cx},{cy}) / 客户区({client_rect[2]}x{client_rect[3]})"
+        )
         return cx, cy
 
     def _post(self, msg: int, wparam: int = 0, lparam: int = 0) -> None:
@@ -110,25 +154,41 @@ class InputController:
         return ctypes.windll.user32.SendMessageW(self._hwnd, msg, wparam, lparam)
 
     def _click_at(self, cx: int, cy: int) -> None:
-        """在客户区坐标发送左键点击"""
+        """在客户区坐标发送左键点击
+
+        先发 MOUSEMOVE 让游戏感知鼠标位置，短暂等待后再点击，
+        避免部分游戏因消息处理太快而忽略位置。
+        """
+        import time
+
         lp = _make_lparam(cx, cy)
         self._post(WM_MOUSEMOVE, 0, lp)
+        time.sleep(0.02)  # 20ms 让游戏处理 MOUSEMOVE
         self._post(WM_LBUTTONDOWN, MK_LBUTTON, lp)
+        time.sleep(0.02)  # 20ms 模拟真实按下时长
         self._post(WM_LBUTTONUP, 0, lp)
 
     def _right_click_at(self, cx: int, cy: int) -> None:
         """在客户区坐标发送右键点击"""
+        import time
+
         lp = _make_lparam(cx, cy)
         self._post(WM_MOUSEMOVE, 0, lp)
+        time.sleep(0.02)
         self._post(WM_RBUTTONDOWN, MK_RBUTTON, lp)
+        time.sleep(0.02)
         self._post(WM_RBUTTONUP, 0, lp)
 
     def _double_click_at(self, cx: int, cy: int) -> None:
         """在客户区坐标发送双击"""
+        import time
+
         lp = _make_lparam(cx, cy)
         self._post(WM_MOUSEMOVE, 0, lp)
+        time.sleep(0.02)
         self._post(WM_LBUTTONDOWN, MK_LBUTTON, lp)
         self._post(WM_LBUTTONUP, 0, lp)
+        time.sleep(0.05)  # 双击间隔
         self._post(WM_LBUTTONDBLCLK, MK_LBUTTON, lp)
         self._post(WM_LBUTTONUP, 0, lp)
 
@@ -157,7 +217,10 @@ class InputController:
                 if action.x is not None and action.y is not None:
                     cx, cy = self._to_client_coords(action.x, action.y)
                     self._click_at(cx, cy)
-                    logger.debug(f"后台点击 ({cx}, {cy})")
+                    logger.info(
+                        f"后台点击 norm({action.x:.3f},{action.y:.3f}) → pixel({cx},{cy})"
+                        + (f" | {action.reason}" if action.reason else "")
+                    )
 
             case ActionType.RIGHT_CLICK:
                 if action.x is not None and action.y is not None:

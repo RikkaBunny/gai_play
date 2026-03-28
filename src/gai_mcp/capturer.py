@@ -4,12 +4,45 @@ from __future__ import annotations
 
 import io
 import logging
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+# 确保进程 DPI 感知（在模块加载时设置，仅 Windows）
+try:
+    import ctypes
+    # Per-Monitor DPI Aware V2 = 最精确的坐标映射
+    # 返回值: S_OK=0 表示成功, E_ACCESSDENIED 表示已设置过
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    logger.debug("已设置 Per-Monitor DPI Awareness V2")
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+        logger.debug("已设置 System DPI Awareness (回退)")
+    except Exception:
+        pass  # 非 Windows 系统忽略
+
+
+@dataclass
+class CaptureResult:
+    """截图结果，携带坐标转换所需的元信息"""
+
+    image: Image.Image
+    # 原始客户区尺寸 (物理像素)
+    client_width: int = 0
+    client_height: int = 0
+    # DPI 缩放倍率 (1.0 = 100%, 1.5 = 150%, 2.0 = 200%)
+    dpi_scale: float = 1.0
+    # 截图是否经过缩放
+    resized: bool = False
+    # 缩放比 (截图宽度 / 原始宽度)
+    resize_ratio: float = 1.0
+    # ROI 信息 (归一化坐标, None 表示未裁剪)
+    roi: Optional[tuple[float, float, float, float]] = None
 
 
 class WindowCapturer:
@@ -25,6 +58,8 @@ class WindowCapturer:
         self.max_width = max_width
         self.change_threshold = change_threshold
         self._last_frame: Optional[np.ndarray] = None
+        # 最近一次截图的元信息 (供 InputController 使用)
+        self.last_capture_info: Optional[CaptureResult] = None
 
     def find_window(self, title: str) -> Optional[int]:
         """通过标题查找窗口句柄（优先选择尺寸最大的匹配窗口）"""
@@ -67,6 +102,18 @@ class WindowCapturer:
         win32gui.EnumWindows(enum_callback, None)
         return windows
 
+    def _get_dpi_scale(self, hwnd: int) -> float:
+        """获取窗口所在显示器的 DPI 缩放倍率"""
+        try:
+            import ctypes
+            # GetDpiForWindow (Win10 1607+)
+            dpi = ctypes.windll.user32.GetDpiForWindow(hwnd)
+            if dpi > 0:
+                return dpi / 96.0
+        except Exception:
+            pass
+        return 1.0
+
     def capture(
         self,
         hwnd: int,
@@ -80,6 +127,9 @@ class WindowCapturer:
 
         Returns:
             PIL Image 或 None (截图失败时)
+
+        Side Effects:
+            更新 self.last_capture_info 供 InputController 使用
         """
         import ctypes
         import ctypes.wintypes
@@ -89,7 +139,10 @@ class WindowCapturer:
         import win32ui
 
         try:
+            dpi_scale = self._get_dpi_scale(hwnd)
+
             # 获取客户区尺寸（不含标题栏和边框）
+            # 已设置 DPI Awareness 后，返回的是物理像素
             client_rect = win32gui.GetClientRect(hwnd)
             width = client_rect[2]
             height = client_rect[3]
@@ -97,6 +150,11 @@ class WindowCapturer:
             if width <= 0 or height <= 0:
                 logger.warning(f"窗口尺寸无效: {width}x{height}")
                 return None
+
+            logger.debug(
+                f"截图参数: 客户区={width}x{height}, DPI={dpi_scale:.0%}, "
+                f"max_width={self.max_width}"
+            )
 
             # 使用客户区 DC 截图（不含标题栏和边框）
             hwnd_dc = ctypes.windll.user32.GetDC(hwnd)
@@ -134,6 +192,15 @@ class WindowCapturer:
                 ctypes.windll.user32.ReleaseDC(hwnd, hwnd_dc)
                 win32gui.DeleteObject(bitmap.GetHandle())
 
+            # 构建截图元信息
+            capture_info = CaptureResult(
+                image=img,
+                client_width=width,
+                client_height=height,
+                dpi_scale=dpi_scale,
+                roi=roi,
+            )
+
             # 裁剪 ROI
             if roi:
                 x1 = int(roi[0] * img.width)
@@ -141,6 +208,7 @@ class WindowCapturer:
                 x2 = int(roi[2] * img.width)
                 y2 = int(roi[3] * img.height)
                 img = img.crop((x1, y1, x2, y2))
+                logger.debug(f"ROI 裁剪: ({roi[0]:.2f},{roi[1]:.2f})-({roi[2]:.2f},{roi[3]:.2f})")
 
             # 缩放
             if img.width > self.max_width:
@@ -149,7 +217,12 @@ class WindowCapturer:
                 img = img.resize(
                     (self.max_width, new_height), Image.LANCZOS
                 )
+                capture_info.resized = True
+                capture_info.resize_ratio = ratio
+                logger.debug(f"截图缩放: {width}→{self.max_width} (ratio={ratio:.3f})")
 
+            capture_info.image = img
+            self.last_capture_info = capture_info
             return img
 
         except Exception as e:
@@ -184,6 +257,51 @@ class WindowCapturer:
         img.save(buffer, format="JPEG", quality=self.quality)
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
+    def draw_click_marker(
+        self,
+        img: Image.Image,
+        norm_x: float,
+        norm_y: float,
+        color: str = "red",
+        label: str = "",
+    ) -> Image.Image:
+        """在截图上画出点击落点标记（用于调试坐标精度）
+
+        Args:
+            img: 截图
+            norm_x, norm_y: AI 返回的归一化坐标 (0.0-1.0)
+            color: 标记颜色
+            label: 标注文字
+
+        Returns:
+            带标记的截图副本
+        """
+        from PIL import ImageDraw
+
+        marked = img.copy()
+        draw = ImageDraw.Draw(marked)
+        px = int(norm_x * img.width)
+        py = int(norm_y * img.height)
+        r = max(8, img.width // 80)  # 标记半径
+
+        # 十字准星
+        draw.line([(px - r, py), (px + r, py)], fill=color, width=2)
+        draw.line([(px, py - r), (px, py + r)], fill=color, width=2)
+        # 圆圈
+        draw.ellipse(
+            [(px - r, py - r), (px + r, py + r)],
+            outline=color,
+            width=2,
+        )
+        # 坐标文字
+        text = f"({norm_x:.2f},{norm_y:.2f})"
+        if label:
+            text = f"{label} {text}"
+        draw.text((px + r + 4, py - 8), text, fill=color)
+
+        return marked
+
     def reset(self) -> None:
         """重置帧缓存"""
         self._last_frame = None
+        self.last_capture_info = None

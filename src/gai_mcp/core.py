@@ -11,8 +11,14 @@ from .ai_engine.base import AIEngine
 from .capturer import WindowCapturer
 from .game_loop import GameLoop
 from .input_controller import InputController
+from .local_analyzer import LocalAnalyzer
+from .memory import LongTermMemory, ShortTermMemory
 from .models import ActionType, GameAction, GameConfig, GameSession, SessionStatus
+from .models_advanced import AdvancedConfig
 from .config_manager import apply_api_keys, load_config, setup_file_logging
+from .reflection import ReflectionEngine
+from .skill_manager import SkillManager
+from .task_manager import TaskManager
 from .virtual_desktop import VirtualDesktopManager
 
 logger = logging.getLogger(__name__)
@@ -103,13 +109,83 @@ class GameController:
 
         # 加载 skills
         skills = load_skills(raw_config)
-        if skills:
+
+        # --- 高级功能初始化 ---
+        adv_cfg = AdvancedConfig(**(config.advanced or {}))
+        any_advanced = (
+            adv_cfg.task_inference_enabled
+            or adv_cfg.reflection_enabled
+            or adv_cfg.memory_enabled
+            or adv_cfg.dynamic_skills_enabled
+            or adv_cfg.layered_decision_enabled
+        )
+
+        task_manager = None
+        reflection_engine = None
+        short_term_memory = None
+        long_term_memory = None
+        skill_manager = None
+        local_analyzer = None
+        game_id = window_title
+
+        if any_advanced:
+            ai_engine.enable_advanced(True)
+
+        # Feature 1: 任务推断
+        if adv_cfg.task_inference_enabled:
+            task_manager = TaskManager()
+            logger.info("高级功能: 任务推断已启用")
+
+        # Feature 2: 自我反思
+        if adv_cfg.reflection_enabled:
+            reflection_engine = ReflectionEngine(
+                diff_threshold=adv_cfg.reflection_diff_threshold,
+                max_retries=adv_cfg.reflection_max_retries,
+            )
+            logger.info("高级功能: 自我反思已启用")
+
+        # Feature 3: 记忆系统
+        if adv_cfg.memory_enabled:
+            short_term_memory = ShortTermMemory(
+                capacity=adv_cfg.short_term_capacity
+            )
+            logger.info("高级功能: 短期记忆已启用")
+            if adv_cfg.long_term_enabled:
+                long_term_memory = LongTermMemory(game_id=game_id)
+                logger.info(
+                    f"高级功能: 长期记忆已启用 "
+                    f"({long_term_memory.experience_count} 条历史经验)"
+                )
+
+        # Feature 4: 动态技能
+        if adv_cfg.dynamic_skills_enabled:
+            skill_manager = SkillManager(
+                game_id=game_id,
+                max_dynamic_skills=adv_cfg.max_dynamic_skills,
+            )
+            skill_manager.set_static_skills(skills)
+            ai_engine.set_skills(skill_manager.get_all_skills())
+            logger.info(
+                f"高级功能: 动态技能已启用 "
+                f"(静态={len(skills)}, 动态={skill_manager.dynamic_count})"
+            )
+        elif skills:
             ai_engine.set_skills(skills)
             logger.info(f"已加载 {len(skills)} 个技能: {[s['name'] for s in skills]}")
 
-        # 输入控制器
+        # Feature 5: 分层决策
+        if adv_cfg.layered_decision_enabled:
+            local_analyzer = LocalAnalyzer(
+                change_threshold=adv_cfg.local_cv_change_threshold,
+                static_frame_patience=adv_cfg.static_frame_patience,
+            )
+            logger.info("高级功能: 分层决策已启用")
+
+        # 输入控制器 (传入 capturer 以获取截图坐标元信息)
         input_ctrl = InputController(
-            vd_manager=self.vd_manager, use_virtual_desktop=use_virtual_desktop
+            vd_manager=self.vd_manager,
+            use_virtual_desktop=use_virtual_desktop,
+            capturer=self.capturer,
         )
         input_ctrl.set_target_window(hwnd)
 
@@ -120,6 +196,12 @@ class GameController:
             ai_engine=ai_engine,
             capturer=self.capturer,
             input_ctrl=input_ctrl,
+            task_manager=task_manager,
+            reflection_engine=reflection_engine,
+            short_term_memory=short_term_memory,
+            long_term_memory=long_term_memory,
+            skill_manager=skill_manager,
+            local_analyzer=local_analyzer,
         )
         await self.game_loop.start()
 
