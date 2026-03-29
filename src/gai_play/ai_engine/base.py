@@ -243,36 +243,88 @@ class AIEngine(ABC):
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
 
-        # 2. 直接解析
-        try:
-            data = json.loads(text)
-            return AIDecision(**data)
-        except (json.JSONDecodeError, ValueError):
-            pass
+        # 2. 尝试解析 JSON（直接 / 提取片段 / 修复后）
+        data = None
+        for attempt_text in self._json_candidates(text):
+            try:
+                data = json.loads(attempt_text)
+                break
+            except json.JSONDecodeError:
+                continue
 
-        # 3. 提取最外层 { ... } 再解析
+        if isinstance(data, dict):
+            # 尝试字段映射后构造 AIDecision
+            normalized = self._normalize_fields(data)
+            try:
+                return AIDecision(**normalized)
+            except (ValueError, TypeError) as e:
+                logger.debug(f"字段映射后仍无法构造 AIDecision: {e}")
+
+        # 3. 都失败了，尝试从文本中提取关键字段构造决策
+        logger.warning(f"JSON 解析全部失败，尝试从文本提取。原始内容: {text[:300]}")
+        return self._fallback_parse(text)
+
+    @staticmethod
+    def _json_candidates(text: str):
+        """生成多个 JSON 解析候选文本"""
+        yield text
         start = text.find("{")
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
             fragment = text[start:end]
-            try:
-                data = json.loads(fragment)
-                return AIDecision(**data)
-            except (json.JSONDecodeError, ValueError):
-                pass
+            yield fragment
+            yield AIEngine._fix_json(fragment)
 
-            # 4. 修复常见 JSON 格式问题后再试
-            fixed = self._fix_json(fragment)
-            try:
-                data = json.loads(fixed)
-                logger.info("JSON 修复成功")
-                return AIDecision(**data)
-            except (json.JSONDecodeError, ValueError):
-                pass
+    @staticmethod
+    def _normalize_fields(data: dict) -> dict:
+        """将本地模型返回的非标准字段名映射为 AIDecision 所需的标准字段"""
+        result = {}
 
-        # 5. 都失败了，尝试从文本中提取关键字段构造决策
-        logger.warning(f"JSON 解析全部失败，尝试从文本提取。原始内容: {text[:300]}")
-        return self._fallback_parse(text)
+        # analysis 字段: 兼容 observation, judgment, reasoning 等
+        result["analysis"] = str(
+            data.get("analysis")
+            or data.get("observation")
+            or data.get("judgment")
+            or data.get("reasoning")
+            or data.get("explanation")
+            or ""
+        )
+
+        # confidence
+        result["confidence"] = data.get("confidence", 0.5)
+
+        # actions 字段: 兼容单 action 对象和 actions 列表
+        raw_actions = data.get("actions")
+        if raw_actions and isinstance(raw_actions, list):
+            result["actions"] = raw_actions
+        else:
+            # 尝试从单个 action 字段构建
+            action_type = data.get("action")
+            if action_type and isinstance(action_type, str):
+                single = {"action": action_type, "reason": str(data.get("reason") or data.get("reasoning") or "")}
+                # 坐标: 兼容 x/y, coords, coordinate
+                coords = data.get("coords") or data.get("coordinate") or data.get("coord")
+                if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    single["x"] = float(coords[0])
+                    single["y"] = float(coords[1])
+                elif data.get("x") is not None and data.get("y") is not None:
+                    single["x"] = float(data["x"])
+                    single["y"] = float(data["y"])
+                # duration for wait
+                if data.get("duration") is not None:
+                    single["duration"] = float(data["duration"])
+                if data.get("key") is not None:
+                    single["key"] = str(data["key"])
+                result["actions"] = [single]
+            else:
+                result["actions"] = [{"action": "wait", "duration": 1.0, "reason": "AI 未返回标准操作格式"}]
+
+        # 可选字段透传
+        for key in ("current_task", "new_experience", "new_skill", "visible_text", "sub_goals"):
+            if data.get(key) is not None:
+                result[key] = data[key]
+
+        return result
 
     @staticmethod
     def _fix_json(text: str) -> str:
@@ -293,11 +345,10 @@ class AIEngine(ABC):
     @staticmethod
     def _fallback_parse(text: str) -> AIDecision:
         """最终兜底：从 AI 返回的文本中提取信息构造决策"""
-        # 尝试提取 analysis
         analysis = text[:200] if text else "AI 返回了无法解析的内容"
 
-        # 尝试匹配 click 坐标
         actions = []
+        # 模式 1: "action": "xxx"..."x": 0.5..."y": 0.5
         click_match = re.search(
             r'"action"\s*:\s*"(\w+)".*?"x"\s*:\s*([\d.]+).*?"y"\s*:\s*([\d.]+)',
             text, re.DOTALL
@@ -308,12 +359,30 @@ class AIEngine(ABC):
                     action=ActionType(click_match.group(1)),
                     x=float(click_match.group(2)),
                     y=float(click_match.group(3)),
-                    reason="从损坏的 JSON 中提取",
+                    reason="从文本中提取",
                 ))
             except (ValueError, KeyError):
                 pass
 
-        # 如果什么操作都没提取到，给一个等待
+        # 模式 2: "coords": [0.5, 0.5] 或 "coordinate": [0.5, 0.5]
+        if not actions:
+            coord_match = re.search(
+                r'"(?:coords?|coordinate)"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]',
+                text
+            )
+            action_match = re.search(r'"action"\s*:\s*"(\w+)"', text)
+            if coord_match:
+                try:
+                    action_type = ActionType(action_match.group(1)) if action_match else ActionType.CLICK
+                    actions.append(GameAction(
+                        action=action_type,
+                        x=float(coord_match.group(1)),
+                        y=float(coord_match.group(2)),
+                        reason="从文本中提取",
+                    ))
+                except (ValueError, KeyError):
+                    pass
+
         if not actions:
             actions.append(GameAction(
                 action=ActionType.WAIT, duration=1.0,
