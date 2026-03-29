@@ -70,6 +70,8 @@ class DecisionRecord:
 class GameRunner:
     """单例游戏运行管理器"""
 
+    MAX_CAPTURE_FAILURES = 5  # 连续截图失败上限（窗口关闭时自动停止）
+
     def __init__(self) -> None:
         self._task: Optional[asyncio.Task] = None
         self._stop_flag = False
@@ -81,6 +83,12 @@ class GameRunner:
         self.total_actions: int = 0
         self.decisions: deque[DecisionRecord] = deque(maxlen=MAX_DECISIONS)
         self._hwnd: Optional[int] = None
+        # 鲁棒性: 连续错误/截图失败计数
+        self._consecutive_errors: int = 0
+        self._consecutive_capture_failures: int = 0
+        # 鲁棒性: 停止时刷盘引用
+        self._active_ltm: Optional[LongTermMemory] = None
+        self._active_skill_mgr: Optional[SkillManager] = None
 
     @property
     def is_running(self) -> bool:
@@ -113,11 +121,15 @@ class GameRunner:
 
         self.game_name = game_name
         self.window_title = game.get("window_title", "")
+        if not self.window_title:
+            return {"error": f"游戏 '{game_name}' 未配置 window_title"}
         self.round_count = 0
         self.total_actions = 0
         self.decisions.clear()
         self._stop_flag = False
         self._pause_flag = False
+        self._consecutive_errors = 0
+        self._consecutive_capture_failures = 0
 
         # 查找窗口（先检查是否已在运行）
         capturer = WindowCapturer(
@@ -196,25 +208,44 @@ class GameRunner:
             engine.enable_advanced(True)
 
         if adv_cfg.task_inference_enabled:
-            task_mgr = TaskManager()
+            try:
+                task_mgr = TaskManager()
+            except Exception as e:
+                logger.warning(f"TaskManager 初始化失败，已禁用: {e}")
         if adv_cfg.reflection_enabled:
-            refl_engine = ReflectionEngine(
-                diff_threshold=adv_cfg.reflection_diff_threshold,
-                max_retries=adv_cfg.reflection_max_retries,
-            )
+            try:
+                refl_engine = ReflectionEngine(
+                    diff_threshold=adv_cfg.reflection_diff_threshold,
+                    max_retries=adv_cfg.reflection_max_retries,
+                )
+            except Exception as e:
+                logger.warning(f"ReflectionEngine 初始化失败，已禁用: {e}")
         if adv_cfg.memory_enabled:
-            stm = ShortTermMemory(capacity=adv_cfg.short_term_capacity)
-            if adv_cfg.long_term_enabled:
-                ltm = LongTermMemory(game_id=game_name)
+            try:
+                stm = ShortTermMemory(capacity=adv_cfg.short_term_capacity)
+                if adv_cfg.long_term_enabled:
+                    ltm = LongTermMemory(game_id=game_name)
+            except Exception as e:
+                logger.warning(f"Memory 初始化失败，已禁用: {e}")
         if adv_cfg.dynamic_skills_enabled:
-            skill_mgr = SkillManager(game_id=game_name, max_dynamic_skills=adv_cfg.max_dynamic_skills)
-            skill_mgr.set_static_skills(skills)
-            engine.set_skills(skill_mgr.get_all_skills())
+            try:
+                skill_mgr = SkillManager(game_id=game_name, max_dynamic_skills=adv_cfg.max_dynamic_skills)
+                skill_mgr.set_static_skills(skills)
+                engine.set_skills(skill_mgr.get_all_skills())
+            except Exception as e:
+                logger.warning(f"SkillManager 初始化失败，已禁用: {e}")
         if adv_cfg.layered_decision_enabled:
-            local_ana = LocalAnalyzer(
-                change_threshold=adv_cfg.local_cv_change_threshold,
-                static_frame_patience=adv_cfg.static_frame_patience,
-            )
+            try:
+                local_ana = LocalAnalyzer(
+                    change_threshold=adv_cfg.local_cv_change_threshold,
+                    static_frame_patience=adv_cfg.static_frame_patience,
+                )
+            except Exception as e:
+                logger.warning(f"LocalAnalyzer 初始化失败，已禁用: {e}")
+
+        # 保存引用，stop() 时可刷盘
+        self._active_ltm = ltm
+        self._active_skill_mgr = skill_mgr
 
         self.status = "running"
         self._task = asyncio.create_task(
@@ -236,6 +267,19 @@ class GameRunner:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        # 刷盘: 保存长期记忆和动态技能
+        if self._active_ltm:
+            try:
+                self._active_ltm.save()
+            except Exception as e:
+                logger.warning(f"停止时保存长期记忆失败: {e}")
+            self._active_ltm = None
+        if self._active_skill_mgr:
+            try:
+                self._active_skill_mgr.save_dynamic()
+            except Exception as e:
+                logger.warning(f"停止时保存动态技能失败: {e}")
+            self._active_skill_mgr = None
         self.status = "idle"
         logger.info("游戏循环已停止")
         return {"status": "stopped", "rounds": self.round_count, "actions": self.total_actions}
@@ -373,12 +417,18 @@ class GameRunner:
                 # 1. 截图
                 img = capturer.capture(hwnd)
                 if img is None:
+                    self._consecutive_capture_failures += 1
                     rec.skipped = "截图失败"
-                    rec.error = "截图失败"
-                    logger.warning(f"[Round {self.round_count}] 截图失败，跳过")
+                    rec.error = f"截图失败 ({self._consecutive_capture_failures}/{self.MAX_CAPTURE_FAILURES})"
+                    logger.warning(f"[Round {self.round_count}] 截图失败 ({self._consecutive_capture_failures}/{self.MAX_CAPTURE_FAILURES})")
                     self.decisions.append(rec)
+                    if self._consecutive_capture_failures >= self.MAX_CAPTURE_FAILURES:
+                        logger.critical("连续截图失败次数过多（窗口可能已关闭/最小化），自动停止")
+                        self.status = "error"
+                        break
                     await asyncio.sleep(interval)
                     continue
+                self._consecutive_capture_failures = 0
 
                 rec.screenshot_b64 = self._make_thumbnail(img)
                 logger.info(f"[Round {self.round_count}] 截图完成: {img.width}x{img.height}")
@@ -511,6 +561,8 @@ class GameRunner:
                         action_succeeded = reflection.action_succeeded
                         if not reflection.action_succeeded:
                             logger.warning(f"[Round {self.round_count}] 反思: 操作可能失败")
+                    else:
+                        logger.warning(f"[Round {self.round_count}] 操作后截图失败，跳过反思")
 
                 # 8. 更新记忆 (Feature 3)
                 if stm:
@@ -524,35 +576,53 @@ class GameRunner:
                     )
 
                 if ltm and decision.new_experience:
+                    exp_text = decision.new_experience if isinstance(decision.new_experience, str) else str(decision.new_experience)
                     ltm.add_experience(ExperienceEntry(
                         game_id=ltm.game_id,
                         situation=decision.analysis[:100],
                         action_taken=", ".join(a.action.value for a in decision.actions),
                         outcome="成功" if action_succeeded else "待验证",
-                        lesson=decision.new_experience,
+                        lesson=exp_text,
                     ))
 
                 # 9. 动态技能生成 (Feature 4)
                 if skill_mgr and decision.new_skill:
-                    new_skill = skill_mgr.add_skill(decision.new_skill)
-                    if new_skill:
-                        logger.info(f"[Round {self.round_count}] AI 生成新技能: {new_skill.name}")
-                        engine.set_skills(skill_mgr.get_all_skills())
+                    if isinstance(decision.new_skill, dict):
+                        try:
+                            new_skill = skill_mgr.add_skill(decision.new_skill)
+                            if new_skill:
+                                logger.info(f"[Round {self.round_count}] AI 生成新技能: {new_skill.name}")
+                                engine.set_skills(skill_mgr.get_all_skills())
+                        except Exception as e:
+                            logger.warning(f"[Round {self.round_count}] 动态技能生成失败: {e}")
+                    else:
+                        logger.warning(f"[Round {self.round_count}] new_skill 类型异常: {type(decision.new_skill)}")
 
+                self._consecutive_errors = 0  # 成功轮次重置错误计数
                 self.decisions.append(rec)
                 await asyncio.sleep(interval)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[Round {self.round_count}] 异常: {e}", exc_info=True)
+                self._consecutive_errors += 1
+                logger.error(
+                    f"[Round {self.round_count}] 异常 ({self._consecutive_errors}): {e}",
+                    exc_info=True,
+                )
                 rec = DecisionRecord()
                 rec.round_id = self.round_count
                 rec.timestamp = time.strftime("%H:%M:%S")
                 rec.error = str(e)
                 self.decisions.append(rec)
+                # 将连续错误信息注入 AI 反思上下文，让 AI 自行调整策略
+                if refl_engine:
+                    engine.set_reflection_context(
+                        f"⚠️ 连续 {self._consecutive_errors} 次操作出现异常: {e}\n"
+                        f"请换一个完全不同的策略来应对当前画面。"
+                    )
                 self.status = "error"
-                await asyncio.sleep(interval * 3)
+                await asyncio.sleep(interval * 2)
                 self.status = "running"
 
 

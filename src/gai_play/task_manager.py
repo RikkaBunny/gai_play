@@ -59,14 +59,25 @@ class TaskManager:
         # 更新子目标（如果 AI 提供了）
         new_sub_goals = getattr(decision, "sub_goals", None)
         if new_sub_goals and isinstance(new_sub_goals, list):
-            self.state.sub_goals = [
-                SubGoal(
-                    name=sg.get("name", "") if isinstance(sg, dict) else str(sg),
-                    description=sg.get("description", "") if isinstance(sg, dict) else "",
-                    status=SubGoalStatus(sg.get("status", "pending")) if isinstance(sg, dict) else SubGoalStatus.PENDING,
-                )
-                for sg in new_sub_goals
-            ]
+            parsed = []
+            for sg in new_sub_goals:
+                try:
+                    if isinstance(sg, dict):
+                        # 安全解析 status 枚举
+                        try:
+                            status = SubGoalStatus(str(sg.get("status", "pending")))
+                        except ValueError:
+                            status = SubGoalStatus.PENDING
+                        parsed.append(SubGoal(
+                            name=str(sg.get("name", "")),
+                            description=str(sg.get("description", "")),
+                            status=status,
+                        ))
+                    else:
+                        parsed.append(SubGoal(name=str(sg)))
+                except Exception as e:
+                    logger.warning(f"跳过异常 sub_goal: {sg} ({e})")
+            self.state.sub_goals = parsed
 
     @property
     def is_stuck(self) -> bool:

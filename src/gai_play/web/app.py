@@ -134,7 +134,10 @@ async def api_delete_game(request: Request) -> JSONResponse:
 
 async def api_get_logs(request: Request) -> JSONResponse:
     """获取日志"""
-    lines = int(request.query_params.get("lines", "200"))
+    try:
+        lines = max(1, min(int(request.query_params.get("lines", "200")), 10000))
+    except (ValueError, TypeError):
+        lines = 200
     content = get_log_content(lines)
     return JSONResponse({"logs": content})
 
@@ -186,7 +189,10 @@ async def api_game_status(request: Request) -> JSONResponse:
 
 async def api_game_decisions(request: Request) -> JSONResponse:
     """获取决策历史"""
-    limit = int(request.query_params.get("limit", "20"))
+    try:
+        limit = max(1, min(int(request.query_params.get("limit", "20")), 100))
+    except (ValueError, TypeError):
+        limit = 20
     return JSONResponse(runner.get_decisions(limit))
 
 

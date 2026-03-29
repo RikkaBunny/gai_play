@@ -85,7 +85,7 @@ class SkillManager:
         Returns:
             创建的 SkillEntry 或 None
         """
-        name = skill_data.get("name", "").strip()
+        name = str(skill_data.get("name", "")).strip()
         if not name:
             return None
 

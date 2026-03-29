@@ -321,8 +321,15 @@ class AIEngine(ABC):
             ))
 
         # 尝试提取 confidence
+        confidence = 0.1
         conf_match = re.search(r'"confidence"\s*:\s*([\d.]+)', text)
-        confidence = float(conf_match.group(1)) if conf_match else 0.1
+        if conf_match:
+            try:
+                val = float(conf_match.group(1))
+                if 0.0 <= val <= 1.0:
+                    confidence = val
+            except (ValueError, OverflowError):
+                pass
 
         return AIDecision(
             analysis=analysis,
