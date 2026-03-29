@@ -37,7 +37,7 @@ class ClaudeEngine(AIEngine):
     ) -> str:
         response = await self._client.messages.create(
             model=self.model,
-            max_tokens=1024,
+            max_tokens=2048,
             system=self.get_system_prompt(),
             messages=[
                 {

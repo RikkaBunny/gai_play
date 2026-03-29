@@ -89,20 +89,30 @@ class SkillManager:
         if not name:
             return None
 
+        # AI 返回的 steps/content 可能是 list，统一转为 str
+        raw_content = skill_data.get("steps", skill_data.get("content", ""))
+        if isinstance(raw_content, list):
+            raw_content = "\n".join(str(item) for item in raw_content)
+        raw_content = str(raw_content)
+
+        raw_trigger = skill_data.get("trigger_condition", "")
+        if isinstance(raw_trigger, list):
+            raw_trigger = ", ".join(str(item) for item in raw_trigger)
+        raw_trigger = str(raw_trigger)
+
         # 检查是否已存在同名技能
         for existing in self._dynamic_skills:
             if existing.name == name:
-                # 更新内容
-                existing.content = skill_data.get("steps", skill_data.get("content", ""))
-                existing.trigger_condition = skill_data.get("trigger_condition", "")
+                existing.content = raw_content
+                existing.trigger_condition = raw_trigger
                 self.save_dynamic()
                 logger.info(f"更新动态技能: {name}")
                 return existing
 
         entry = SkillEntry(
             name=name,
-            trigger_condition=skill_data.get("trigger_condition", ""),
-            content=skill_data.get("steps", skill_data.get("content", "")),
+            trigger_condition=raw_trigger,
+            content=raw_content,
             source=SkillSource.GENERATED,
             created_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         )

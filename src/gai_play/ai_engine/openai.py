@@ -50,7 +50,7 @@ class OpenAIEngine(AIEngine):
     ) -> str:
         response = await self._client.chat.completions.create(
             model=self.model,
-            max_tokens=1024,
+            max_tokens=2048,
             messages=[
                 {"role": "system", "content": self.get_system_prompt()},
                 {
