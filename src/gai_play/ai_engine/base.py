@@ -301,10 +301,15 @@ class AIEngine(ABC):
             # 尝试从单个 action 字段构建
             action_type = data.get("action")
             if action_type and isinstance(action_type, str):
-                single = {"action": action_type, "reason": str(data.get("reason") or data.get("reasoning") or "")}
-                # 坐标: 兼容 x/y, coords, coordinate
-                coords = data.get("coords") or data.get("coordinate") or data.get("coord")
-                if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                single = {"action": action_type, "reason": str(data.get("reason") or data.get("reasoning") or data.get("explanation") or data.get("description") or "")}
+                # 坐标: 兼容多种格式
+                coords = data.get("coords") or data.get("coordinate") or data.get("coordinates") or data.get("coord")
+                if isinstance(coords, dict):
+                    # {"coordinates": {"x": 0.5, "y": 0.8}}
+                    single["x"] = float(coords.get("x", 0.5))
+                    single["y"] = float(coords.get("y", 0.5))
+                elif isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    # {"coords": [0.5, 0.8]}
                     single["x"] = float(coords[0])
                     single["y"] = float(coords[1])
                 elif data.get("x") is not None and data.get("y") is not None:
@@ -364,12 +369,18 @@ class AIEngine(ABC):
             except (ValueError, KeyError):
                 pass
 
-        # 模式 2: "coords": [0.5, 0.5] 或 "coordinate": [0.5, 0.5]
+        # 模式 2: "coords": [0.5, 0.5] 或 "coordinates": {"x": 0.5, "y": 0.5}
         if not actions:
             coord_match = re.search(
-                r'"(?:coords?|coordinate)"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]',
+                r'"(?:coords?|coordinates?)"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]',
                 text
             )
+            if not coord_match:
+                # {"coordinates": {"x": 0.5, "y": 0.8}}
+                coord_match = re.search(
+                    r'"(?:coordinates?)"\s*:\s*\{\s*"x"\s*:\s*([\d.]+)\s*,\s*"y"\s*:\s*([\d.]+)',
+                    text
+                )
             action_match = re.search(r'"action"\s*:\s*"(\w+)"', text)
             if coord_match:
                 try:
